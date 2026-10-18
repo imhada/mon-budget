@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
   
   <!-- Ingestion de la bibliothèque Supabase -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
   <style>
   :root{
@@ -187,6 +187,13 @@
   .seg button{background:var(--bg);border-radius:8px;padding:7px 12px;font-size:.88rem;font-weight:500}
   .seg button[aria-pressed="true"]{background:var(--cyan);color:var(--navy);font-weight:700}
   .actions-row{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+  .sync:hover{background:var(--cyan-soft)}
+  .login{max-width:420px;margin:6vh auto 0;display:flex;flex-direction:column;gap:14px}
+  .login h1{font-size:1.4rem}
+  .login .row2{display:flex;gap:8px;flex-wrap:wrap}
+  .login .row2 input{flex:1;min-width:0}
+  .linkbtn{color:var(--grey);text-decoration:underline;font-size:.85rem;align-self:flex-start}
+  body.nologin .fab{display:none}
   </style>
 </head>
 <body>
@@ -211,7 +218,7 @@
         <button class="iconbtn" id="next" aria-label="Mois suivant"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
       </div>
     </div>
-    <div class="sync"><span class="dot" id="dot"></span><span id="synctxt">Chargement</span></div>
+    <button class="sync" id="sync" type="button"><span class="dot" id="dot"></span><span id="synctxt">Chargement</span></button>
   </div>
   <main id="view"></main>
 </div>
@@ -219,20 +226,20 @@
 <button class="fab" id="fab"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Dépense</button>
 
 <script>
-// CONFIGURATION SUPABASE (Clé intégrée)
-const SUPABASE_URL = "https://ubkcaufyyrqwwjpptrso.supabase.co";
-const SUPABASE_KEY = "sb_publishable_DBgF1on72HKlHod21iSLig_4-9izcWW";
-
-let supabaseClient = null;
-if (window.supabase && SUPABASE_KEY) {
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-}
-
 const REV_TYPES={salaire:"Salaire net",pension:"Pension / aide famille",aide:"Aide (CAF, bourse)",autre:"Autre"};
 const GROUPES={logement:"Logement",abonnements:"Abonnements",transport:"Transport",autre:"Autres charges"};
 const DEFAULT={revenus:[],charges:[],enveloppes:[],depenses:[],projets:[]};
 let S=structuredClone(DEFAULT), tab="mois", now=new Date(), cur={y:now.getFullYear(),m:now.getMonth()};
-let saveT=null;
+let saveT=null, pending=false, user=null, offline=false, loginEmail="", codeSent=false;
+const LS_KEY="budget-gautier";
+const SUPABASE_URL="https://ubkcaufyyrqwwjpptrso.supabase.co";
+const SUPABASE_KEY="sb_publishable_DBgF1on72HKlHod21iSLig_4-9izcWW";
+const sb=window.supabase?window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY):null;
+// Point de départ du premier lancement : tes catégories, montants à remplir
+const SEED={revenus:[{id:"r1",nom:"Salaire alternance",montant:0,type:"salaire"},{id:"r2",nom:"Aide parents",montant:0,type:"pension"},{id:"r3",nom:"CAF",montant:0,type:"aide"}],
+ charges:[{id:"c1",nom:"Loyer",montant:0,groupe:"logement"},{id:"c2",nom:"Électricité",montant:0,groupe:"logement"},{id:"c3",nom:"Gaz",montant:0,groupe:"logement"},{id:"c4",nom:"Assurance habitation",montant:0,groupe:"logement"},{id:"c5",nom:"Logement Le Havre",montant:0,groupe:"logement"},{id:"c6",nom:"Claude",montant:0,groupe:"abonnements"},{id:"c7",nom:"Netflix",montant:0,groupe:"abonnements"},{id:"c8",nom:"Basic-Fit",montant:0,groupe:"abonnements"},{id:"c9",nom:"Location vélo",montant:0,groupe:"transport"}],
+ enveloppes:[{id:"e1",nom:"Courses",budget:0},{id:"e2",nom:"Repas dehors",budget:0},{id:"e3",nom:"Sorties",budget:0},{id:"e4",nom:"Shopping",budget:0},{id:"e5",nom:"Imprévus",budget:0}],
+ depenses:[],projets:[]};
 
 const eur=n=>{n=Math.round((+n||0)*100)/100;return n.toLocaleString("fr-FR",{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2})+" €"};
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -247,67 +254,97 @@ const ICON={
   wallet:'<rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M16 13h2M3 9.5h18M6 6l9-2.5 1.5 2.5"/>'};
 const ic=k=>`<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg></span>`;
 
-/* ---------- Stockage & Synchronisation ---------- */
+/* ---------- Stockage : Supabase avec connexion par e-mail ---------- */
+// La clé publishable peut être publique : la sécurité vient des règles RLS (chacun ne lit que sa ligne).
 function setSync(m,t){$("dot").className="dot "+(m==="db"?"ok":"local");$("synctxt").textContent=t}
-
-function loadLocal(){
-  try{
-    const r=localStorage.getItem("budget-gautier");
-    if(r) S={...DEFAULT,...JSON.parse(r)};
-  }catch(e){}
-}
+function loadLocal(){try{const r=localStorage.getItem(LS_KEY);if(r)S={...DEFAULT,...JSON.parse(r)}}catch(e){}}
+function saveLocal(){try{localStorage.setItem(LS_KEY,JSON.stringify(S))}catch(e){}}
+const hasData=()=>S.revenus.length||S.charges.length||S.depenses.length||S.projets.length||S.enveloppes.length;
 
 function save(){
-  try{localStorage.setItem("budget-gautier",JSON.stringify(S))}catch(e){}
-  if(!supabaseClient) return;
-  
-  clearTimeout(saveT);
-  setSync("db","Enregistrement…");
-  
+  saveLocal();
+  if(!sb||!user)return;
+  clearTimeout(saveT);pending=true;setSync("db","Enregistrement…");
   saveT=setTimeout(async()=>{
     try{
-      const { error } = await supabaseClient
-        .from('budget_store')
-        .upsert({ id: 'main', data: S, updated_at: new Date() });
-        
-      if(error) throw error;
+      const {error}=await sb.from("budget_store").upsert({id:user.id,data:S,updated_at:new Date().toISOString()});
+      if(error)throw error;
       setSync("db","Synchronisé");
-    }catch(e){
-      setSync("local","Non synchronisé");
-    }
-  }, 500);
+    }catch(e){setSync("local","Non synchronisé, réessaie plus tard")}
+    pending=false;
+  },500);
+}
+
+async function loadRemote(){
+  if(!sb||!user||pending)return;
+  setSync("db","Chargement…");
+  const {data,error}=await sb.from("budget_store").select("data").eq("id",user.id).maybeSingle();
+  if(error){setSync("local","Erreur de synchro");return}
+  if(data?.data){S={...DEFAULT,...data.data};saveLocal();render();setSync("db","Synchronisé")}
+  else{ if(!hasData())S=structuredClone(SEED); render(); save(); }
 }
 
 async function connect(){
   loadLocal();
+  if(!sb){render();setSync("local","Mode local (Supabase indisponible)");return}
+  const {data:{session}}=await sb.auth.getSession();
+  user=session?.user||null;
+  sb.auth.onAuthStateChange((ev,s)=>{
+    const was=user?.id; user=s?.user||null;
+    if(user&&user.id!==was){offline=false;loadRemote()}
+    if(!user&&!offline){render()}
+  });
   render();
-  setSync("local","Sur cet appareil");
-  
-  if(!supabaseClient){
-    setSync("local","Mode local");
-    return;
-  }
-  
-  try {
-    setSync("db","Chargement...");
-    const { data, error } = await supabaseClient
-      .from('budget_store')
-      .select('data')
-      .eq('id', 'main')
-      .single();
-      
-    if(data && data.data){
-      S = {...DEFAULT, ...data.data};
-      localStorage.setItem("budget-gautier", JSON.stringify(S));
-      render();
-    }
-    setSync("db","Synchronisé");
-  } catch(e) {
-    setSync("local","Erreur de synchro");
-  }
+  if(user)loadRemote();
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadRemote()});
 }
 
-/* ---------- Calculs ---------- */
+function vLogin(){
+  return `<div class="login card">
+    <h1>Connexion</h1>
+    <p class="note">Entre ton e-mail : tu reçois un code à 6 chiffres (et un lien). Tu ne le fais qu'une fois par appareil.</p>
+    <label class="field"><span class="label">E-mail</span><input id="f_email" type="email" autocomplete="email" inputmode="email" placeholder="toi@exemple.fr" value="${esc(loginEmail)}"></label>
+    <button class="btn" id="sendCode">Recevoir le code</button>
+    <div id="codeBox" ${loginEmail&&codeSent?"":"hidden"} style="display:flex;flex-direction:column;gap:10px">
+      <label class="field"><span class="label">Code reçu par e-mail</span><input id="f_code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></label>
+      <button class="btn" id="checkCode">Me connecter</button>
+    </div>
+    <p id="loginMsg" class="note" hidden></p>
+    <button class="linkbtn" id="offline">Continuer sans synchro (sur cet appareil seulement)</button>
+  </div>`;
+}
+function wireLogin(){
+  const msg=t=>{$("loginMsg").textContent=t;$("loginMsg").hidden=false};
+  $("sendCode").onclick=async()=>{
+    loginEmail=$("f_email").value.trim();
+    if(!/^\S+@\S+\.\S+$/.test(loginEmail))return msg("Entre une adresse e-mail valide.");
+    $("sendCode").disabled=true;
+    const {error}=await sb.auth.signInWithOtp({email:loginEmail,options:{emailRedirectTo:location.origin+location.pathname}});
+    $("sendCode").disabled=false;
+    if(error)return msg("Envoi impossible : "+error.message);
+    codeSent=true;$("codeBox").hidden=false;msg("E-mail envoyé à "+loginEmail+". Tape le code, ou ouvre le lien sur cet appareil.");
+    $("f_code").focus();
+  };
+  $("checkCode").onclick=async()=>{
+    const token=$("f_code").value.replace(/\s/g,"");
+    if(!token)return msg("Entre le code reçu.");
+    const {error}=await sb.auth.verifyOtp({email:loginEmail,token,type:"email"});
+    if(error)msg("Code refusé : "+error.message);
+  };
+  $("offline").onclick=()=>{offline=true;render();setSync("local","Sur cet appareil seulement")};
+}
+function accountSheet(){
+  if(!user){offline=false;render();return}
+  const bg=document.createElement("div");bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet"><h2 style="font-size:1.2rem">Compte</h2><p class="note">Connecté avec <b>${esc(user.email)}</b>. Tes données sont enregistrées dans Supabase et visibles uniquement par ce compte.</p>
+    <div class="actions-row"><button class="btn danger" id="logout">Se déconnecter</button><button class="btn plain" id="close">Fermer</button></div></div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click",e=>{if(e.target===bg)bg.remove()});
+  bg.querySelector("#close").onclick=()=>bg.remove();
+  bg.querySelector("#logout").onclick=async()=>{await sb.auth.signOut();try{localStorage.removeItem(LS_KEY)}catch(e){}S=structuredClone(DEFAULT);bg.remove();render()};
+}
+
+/* ---------- calculs ---------- */
 function calc(y=cur.y,m=cur.m,upto=null){
   const k=mkey(y,m);
   const rev=sum(S.revenus,r=>r.montant);
@@ -325,12 +362,15 @@ function calc(y=cur.y,m=cur.m,upto=null){
   return {k,rev,fixe,projM,dep,extra,dispo,reste,dim,jours,isCur,isPast,txs,envBud:sum(S.enveloppes,e=>e.budget)};
 }
 
-/* ---------- Rendu ---------- */
+/* ---------- rendu ---------- */
 function render(){
   $("mlabel").textContent=new Date(cur.y,cur.m,1).toLocaleDateString("fr-FR",{month:"long",year:cur.y!==now.getFullYear()?"numeric":undefined});
   $("greet").textContent={mois:"Tableau de bord",depenses:"Dépenses",fixe:"Entrées et charges fixes",projets:"Projets"}[tab];
   document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===tab));
   const v=$("view");
+  const needLogin=sb&&!user&&!offline;
+  document.body.classList.toggle("nologin",!!needLogin);
+  if(needLogin){v.className="narrow";document.body.classList.remove("fit");v.innerHTML=vLogin();wireLogin();setSync("local","Non connecté");return}
   v.className=tab==="mois"?"":"narrow";
   document.body.classList.toggle("fit",tab==="mois");
   v.innerHTML=tab==="mois"?vMois():tab==="depenses"?vDep():tab==="fixe"?vFixe():vProj();
@@ -359,7 +399,7 @@ function curve(c){
   else if(xy.length>1){path=`M${xy[0][0]},${xy[0][1]}`;
     for(let i=0;i<xy.length-1;i++){const p0=xy[i-1]||xy[i],p1=xy[i],p2=xy[i+1],p3=xy[i+2]||p2;
       const c1=[p1[0]+(p2[0]-p0[0])/6,p1[1]+(p2[1]-p0[1])/6],c2=[p2[0]-(p3[0]-p1[0])/6,p2[1]-(p3[1]-p1[1])/6];
-      path+=` C${c1[0].toFixed(1)},${Math.min(H-P.b,c1[1]).toFixed(1)} ${c2[0].toFixed(1)},${Math.min(H-P.b,c2[1]).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}` }}
+      path+=` C${c1[0].toFixed(1)},${Math.min(H-P.b,c1[1]).toFixed(1)} ${c2[0].toFixed(1)},${Math.min(H-P.b,c2[1]).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`}}
   const area=xy.length>1?`${path} L${xy[xy.length-1][0]},${H-P.b} L${xy[0][0]},${H-P.b} Z`:"";
   const end=xy[xy.length-1];
   const ideal=c.dispo>0?`<line x1="${X(1)}" y1="${Y(0)}" x2="${X(c.dim)}" y2="${Y(c.dispo)}" stroke="var(--grey)" stroke-opacity=".45" stroke-width="1.5" stroke-dasharray="4 5"/><text x="${X(c.dim)+8}" y="${Y(c.dispo)+4}" font-size="11" fill="var(--grey)">${eur(c.dispo)}</text>`:"";
@@ -382,7 +422,7 @@ function vMois(){
   else if(c.reste<0)status=`<span class="pill bad">Dépassé de ${eur(-c.reste)}</span>`;
   else if(c.jours&&c.dispo>0&&(c.reste/c.dispo)<(c.jours/c.dim)*0.8)status=`<span class="pill bad">Tu dépenses plus vite que le mois n'avance</span>`;
   else status=`<span class="pill ok">Dans le rythme</span>`;
-  
+  // variation du reste vs mois précédent au même jour
   const py=cur.m?cur.y:cur.y-1, pm=cur.m?cur.m-1:11;
   const day=c.isCur?now.getDate():null;
   const prev=calc(py,pm,day), here=calc(cur.y,cur.m,day);
@@ -498,7 +538,7 @@ function vProj(){
       <div class="line"><span class="name" style="font-size:1.05rem">${esc(p.nom)}</span><span class="sub">${Math.round(pc*100)} %</span></div>
       <div class="line"><span style="font-size:1.5rem;font-weight:800;letter-spacing:-.02em">${eur(+p.epargne||0)} <span class="grey" style="font-size:1rem;font-weight:500">/ ${eur(+p.cible||0)}</span></span></div>
       <div class="bar"><span style="width:${(pc*100).toFixed(1)}%"></span></div>
-      <span class="grey small">${done?"Objectif atteint":mois?`${eur(+p.mensuel)} par mois, encore${mois} mois`:"Pas de mise de côté mensuelle"}</span>
+      <span class="grey small">${done?"Objectif atteint":mois?`${eur(+p.mensuel)} par mois, encore ${mois} mois`:"Pas de mise de côté mensuelle"}</span>
       <div class="actions"><button class="btn" data-act="fundProj" data-id="${p.id}">Mettre de côté</button><button class="btn plain" data-act="editProj" data-id="${p.id}">Modifier</button></div>
     </div>`}).join("");
   return `
@@ -508,13 +548,13 @@ function vProj(){
     <button class="add" data-act="addProj">+ Nouveau projet</button>`;
 }
 
-/* ---------- Feuilles d'édition ---------- */
+/* ---------- feuille d'édition ---------- */
 function sheet(title,fields,onSave,onDelete){
   const bg=document.createElement("div");bg.className="sheet-bg";
   bg.innerHTML=`<form class="sheet" novalidate><h2 style="font-size:1.2rem">${title}</h2>${fields.map(f=>{
     if(f.type==="seg")return `<div class="field"><span class="label">${f.label}</span><div class="seg" data-name="${f.name}">${Object.entries(f.options).map(([k,l])=>`<button type="button" data-v="${k}" aria-pressed="${k===f.value}">${l}</button>`).join("")}</div></div>`;
     if(f.type==="select")return `<label class="field"><span class="label">${f.label}</span><select id="f_${f.name}" name="${f.name}">${Object.entries(f.options).map(([k,l])=>`<option value="${esc(k)}" ${k===f.value?"selected":""}>${esc(l)}</option>`).join("")}</select></label>`;
-    return `<label class="field"><span class="label">${f.label}</span><input id="f_${f.name}" name="${f.name}" class="${f.big?"bigin":""}" type="${f.type\vert{}\vert{}"text"}" ${f.type==="number"?'inputmode="decimal" step="0.01" min="0"':""} value="${esc(f.value??"")}" placeholder="${esc(f.ph||"")}"></label>`}).join("")}
+    return `<label class="field"><span class="label">${f.label}</span><input id="f_${f.name}" name="${f.name}" class="${f.big?"bigin":""}" type="${f.type||"text"}" ${f.type==="number"?'inputmode="decimal" step="0.01" min="0"':""} value="${esc(f.value??"")}" placeholder="${esc(f.ph||"")}"></label>`}).join("")}
     <p id="err" style="margin:0;color:var(--down);font-size:.88rem" hidden></p>
     <div class="actions-row"><div>${onDelete?`<button type="button" class="btn danger" id="del">Supprimer</button>`:""}</div><div style="display:flex;gap:8px"><button type="button" class="btn plain" id="cancel">Annuler</button><button class="btn" type="submit">Enregistrer</button></div></div></form>`;
   document.body.appendChild(bg);
@@ -568,16 +608,16 @@ function act(a,id){
       {name:"epargne",label:"Déjà mis de côté (€)",type:"number",value:p.epargne??0},
       {name:"mensuel",label:"À mettre de côté chaque mois (€)",type:"number",value:p.mensuel??0}],
       v=>{if(!v.nom)return "Donne un nom.";if(!(v.cible>0))return "Entre le coût total.";Object.assign(p,v);if(!p.id){p.id=uid();S.projets.push(p)}},p.id&&rm("projets"))}
-  if(a="fundProj"){const p=find("projets");
+  if(a==="fundProj"){const p=find("projets");
     sheet(`Mettre de côté pour ${esc(p.nom)}`,[{name:"m",label:"Montant (€)",type:"number",big:1,value:p.mensuel||""}],
       v=>{if(!v.m)return "Entre un montant.";p.epargne=Math.round(((+p.epargne||0)+v.m)*100)/100})}
 }
 
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();window.scrollTo(0,0)});
-$("prev").onclick=cur.m--;if(cur.m<0){cur.m=11;cur.y--}render();
-$("next").onclick=cur.m++;if(cur.m>11){cur.m=0;cur.y++}render();
+$("prev").onclick=()=>{cur.m--;if(cur.m<0){cur.m=11;cur.y--}render()};
+$("next").onclick=()=>{cur.m++;if(cur.m>11){cur.m=0;cur.y++}render()};
 $("fab").onclick=()=>act("addDep");
-
+$("sync").onclick=accountSheet;
 connect();
 </script>
 
