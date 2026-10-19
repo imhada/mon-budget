@@ -339,10 +339,19 @@ function accountSheet(){
   if(!code){offline=false;render();return}
   const bg=document.createElement("div");bg.className="sheet-bg";
   bg.innerHTML=`<div class="sheet"><h2 style="font-size:1.2rem">Accès</h2><p class="note">Cet appareil retient ton code. Pour ajouter un autre appareil, ouvre le site dessus et entre ton code.</p>
-    <div class="actions-row"><button class="btn danger" id="forget">Verrouiller cet appareil</button><button class="btn plain" id="close">Fermer</button></div></div>`;
+    <div class="actions-row"><button class="btn danger" id="forget">Verrouiller cet appareil</button><button class="btn plain" id="close">Fermer</button></div>
+    <div style="box-shadow:inset 0 1px 0 var(--rail);padding-top:14px;display:flex;flex-direction:column;gap:8px">
+      <p class="note">Remettre à zéro efface toutes tes dépenses, projets et montants, sur tous tes appareils. Tes catégories sont gardées, à 0 €.</p>
+      <button class="btn danger" id="reset" style="align-self:flex-start">Tout remettre à zéro</button>
+    </div></div>`;
   document.body.appendChild(bg);
   bg.addEventListener("click",e=>{if(e.target===bg)bg.remove()});
   bg.querySelector("#close").onclick=()=>bg.remove();
+  let armeReset=false;
+  bg.querySelector("#reset").onclick=()=>{
+    if(!armeReset){armeReset=true;bg.querySelector("#reset").textContent="Confirmer : tout effacer";return}
+    S=structuredClone(SEED);save();render();bg.remove();
+  };
   bg.querySelector("#forget").onclick=()=>{oublierCode();try{localStorage.removeItem(LS_KEY)}catch(e){}S=structuredClone(DEFAULT);pinMsg="";bg.remove();render();setSync("local","Code requis")};
 }
 
