@@ -230,7 +230,7 @@ const REV_TYPES={salaire:"Salaire net",pension:"Pension / aide famille",aide:"Ai
 const GROUPES={logement:"Logement",abonnements:"Abonnements",transport:"Transport",autre:"Autres charges"};
 const DEFAULT={revenus:[],charges:[],enveloppes:[],depenses:[],projets:[]};
 let S=structuredClone(DEFAULT), tab="mois", now=new Date(), cur={y:now.getFullYear(),m:now.getMonth()};
-let saveT=null, pending=false, user=null, offline=false, loginEmail="", codeSent=false;
+let saveT=null, pending=false, user=null, offline=false, loginEmail="", signupMode=false;
 const LS_KEY="budget-gautier";
 const SUPABASE_URL="https://ubkcaufyyrqwwjpptrso.supabase.co";
 const SUPABASE_KEY="sb_publishable_DBgF1on72HKlHod21iSLig_4-9izcWW";
@@ -300,38 +300,45 @@ async function connect(){
 }
 
 function vLogin(){
-  return `<div class="login card">
-    <h1>Connexion</h1>
-    <p class="note">Entre ton e-mail : tu reçois un code à 6 chiffres (et un lien). Tu ne le fais qu'une fois par appareil.</p>
+  return `<form class="login card" id="loginForm" novalidate>
+    <h1>${signupMode?"Créer mon compte":"Connexion"}</h1>
+    <p class="note">${signupMode?"Choisis un mot de passe (8 caractères minimum). Tu ne le feras qu'une fois.":"Une seule fois par appareil, ensuite tu restes connecté."}</p>
     <label class="field"><span class="label">E-mail</span><input id="f_email" type="email" autocomplete="email" inputmode="email" placeholder="toi@exemple.fr" value="${esc(loginEmail)}"></label>
-    <button class="btn" id="sendCode">Recevoir le code</button>
-    <div id="codeBox" ${loginEmail&&codeSent?"":"hidden"} style="display:flex;flex-direction:column;gap:10px">
-      <label class="field"><span class="label">Code reçu par e-mail</span><input id="f_code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></label>
-      <button class="btn" id="checkCode">Me connecter</button>
-    </div>
+    <label class="field"><span class="label">Mot de passe</span><input id="f_pass" type="password" autocomplete="${signupMode?"new-password":"current-password"}" minlength="8"></label>
+    <button class="btn" type="submit" id="loginBtn">${signupMode?"Créer mon compte":"Me connecter"}</button>
     <p id="loginMsg" class="note" hidden></p>
-    <button class="linkbtn" id="offline">Continuer sans synchro (sur cet appareil seulement)</button>
-  </div>`;
+    <button class="linkbtn" type="button" id="switchMode">${signupMode?"J'ai déjà un compte : me connecter":"Première fois ? Créer mon compte"}</button>
+    <button class="linkbtn" type="button" id="offline">Continuer sans synchro (sur cet appareil seulement)</button>
+  </form>`;
 }
 function wireLogin(){
   const msg=t=>{$("loginMsg").textContent=t;$("loginMsg").hidden=false};
-  $("sendCode").onclick=async()=>{
-    loginEmail=$("f_email").value.trim();
+  $("switchMode").onclick=()=>{loginEmail=$("f_email").value.trim();signupMode=!signupMode;render()};
+  $("loginForm").onsubmit=async e=>{
+    e.preventDefault();
+    loginEmail=$("f_email").value.trim(); const password=$("f_pass").value;
     if(!/^\S+@\S+\.\S+$/.test(loginEmail))return msg("Entre une adresse e-mail valide.");
-    $("sendCode").disabled=true;
-    const {error}=await sb.auth.signInWithOtp({email:loginEmail,options:{emailRedirectTo:location.origin+location.pathname}});
-    $("sendCode").disabled=false;
-    if(error)return msg("Envoi impossible : "+error.message);
-    codeSent=true;$("codeBox").hidden=false;msg("E-mail envoyé à "+loginEmail+". Tape le code, ou ouvre le lien sur cet appareil.");
-    $("f_code").focus();
-  };
-  $("checkCode").onclick=async()=>{
-    const token=$("f_code").value.replace(/\s/g,"");
-    if(!token)return msg("Entre le code reçu.");
-    const {error}=await sb.auth.verifyOtp({email:loginEmail,token,type:"email"});
-    if(error)msg("Code refusé : "+error.message);
+    if(password.length<8)return msg("Le mot de passe doit faire au moins 8 caractères.");
+    $("loginBtn").disabled=true;
+    if(signupMode){
+      const {data,error}=await sb.auth.signUp({email:loginEmail,password,options:{emailRedirectTo:location.origin+location.pathname}});
+      $("loginBtn").disabled=false;
+      if(error)return msg("Création impossible : "+traduire(error.message));
+      if(!data.session){signupMode=false;render();$("loginMsg").textContent="Compte créé. Ouvre l'e-mail de confirmation (n'importe quel appareil), clique sur le lien, puis reviens ici te connecter.";$("loginMsg").hidden=false}
+    }else{
+      const {error}=await sb.auth.signInWithPassword({email:loginEmail,password});
+      $("loginBtn").disabled=false;
+      if(error)return msg(traduire(error.message));
+    }
   };
   $("offline").onclick=()=>{offline=true;render();setSync("local","Sur cet appareil seulement")};
+}
+function traduire(m){
+  if(/invalid login/i.test(m))return "E-mail ou mot de passe incorrect.";
+  if(/not confirmed/i.test(m))return "Confirme d'abord ton adresse avec le lien reçu par e-mail.";
+  if(/already registered/i.test(m))return "Un compte existe déjà avec cet e-mail : connecte-toi.";
+  if(/rate limit/i.test(m))return "Trop d'essais, réessaie dans quelques minutes.";
+  return m;
 }
 function accountSheet(){
   if(!user){offline=false;render();return}
