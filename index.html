@@ -230,7 +230,7 @@ const REV_TYPES={salaire:"Salaire net",pension:"Pension / aide famille",aide:"Ai
 const GROUPES={logement:"Logement",abonnements:"Abonnements",transport:"Transport",autre:"Autres charges"};
 const DEFAULT={revenus:[],charges:[],enveloppes:[],depenses:[],projets:[]};
 let S=structuredClone(DEFAULT), tab="mois", now=new Date(), cur={y:now.getFullYear(),m:now.getMonth()};
-let saveT=null, pending=false, cle=null, badKey=false, offline=false;
+let saveT=null, pending=false, code=null, pinMsg="", offline=false;
 const LS_KEY="budget-gautier";
 const SUPABASE_URL="https://ubkcaufyyrqwwjpptrso.supabase.co";
 const SUPABASE_KEY="sb_publishable_DBgF1on72HKlHod21iSLig_4-9izcWW";
@@ -254,27 +254,25 @@ const ICON={
   wallet:'<rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M16 13h2M3 9.5h18M6 6l9-2.5 1.5 2.5"/>'};
 const ic=k=>`<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg></span>`;
 
-/* ---------- Stockage : Supabase protégé par un lien secret ---------- */
-// La clé d'accès n'est jamais dans ce code : elle arrive par le lien (#k=...) et reste sur l'appareil.
-// La table est fermée ; seules deux fonctions (get_budget / save_budget) répondent, et seulement avec la bonne clé.
+/* ---------- Stockage : Supabase protégé par un code ---------- */
+// Le code n'est pas dans ce fichier. Supabase n'en garde qu'une empreinte (bcrypt) et bloque 15 min après 5 codes faux.
+// Une fois le bon code saisi, il est retenu sur l'appareil : l'app s'ouvre ensuite directement.
 function setSync(m,t){$("dot").className="dot "+(m==="db"?"ok":"local");$("synctxt").textContent=t}
 function loadLocal(){try{const r=localStorage.getItem(LS_KEY);if(r)S={...DEFAULT,...JSON.parse(r)}}catch(e){}}
 function saveLocal(){try{localStorage.setItem(LS_KEY,JSON.stringify(S))}catch(e){}}
 const hasData=()=>S.revenus.length||S.charges.length||S.depenses.length||S.projets.length||S.enveloppes.length;
-function readKey(){
-  const m=location.hash.match(/k=([A-Za-z0-9_-]{32,})/);
-  if(m){try{localStorage.setItem("budget-cle",m[1])}catch(e){}return m[1]}
-  try{return localStorage.getItem("budget-cle")}catch(e){return null}
-}
+const MSG={code:"Code incorrect.",bloque:"Trop d'essais : accès bloqué 15 minutes."};
+function oublierCode(){try{localStorage.removeItem("budget-code")}catch(e){}code=null}
 
 function save(){
   saveLocal();
-  if(!sb||!cle)return;
+  if(!sb||!code)return;
   clearTimeout(saveT);pending=true;setSync("db","Enregistrement…");
   saveT=setTimeout(async()=>{
     try{
-      const {data,error}=await sb.rpc("save_budget",{k:cle,d:S});
-      if(error||data!==true)throw error||new Error("refusé");
+      const {data,error}=await sb.rpc("save_budget",{c:code,d:S});
+      if(error)throw error;
+      if(data!=="ok"){if(data==="code"){oublierCode();render()}throw new Error(data)}
       setSync("db","Synchronisé");
     }catch(e){setSync("local","Non synchronisé, réessaie plus tard")}
     pending=false;
@@ -282,52 +280,60 @@ function save(){
 }
 
 async function loadRemote(){
-  if(!sb||!cle||pending)return;
+  if(!sb||!code||pending)return null;
   setSync("db","Chargement…");
-  const {data,error}=await sb.rpc("get_budget",{k:cle});
-  if(error){setSync("local","Erreur de synchro");return}
-  if(data===null){badKey=true;render();setSync("local","Clé d'accès invalide");return}
-  badKey=false;
+  const {data,error}=await sb.rpc("get_budget",{c:code});
+  if(error){setSync("local","Erreur de synchro");return null}
+  if(data&&data._erreur){
+    if(data._erreur==="code")oublierCode();
+    pinMsg=MSG[data._erreur]||"Accès refusé.";render();setSync("local",pinMsg);return data._erreur;
+  }
+  pinMsg="";
   S={...DEFAULT,...data};
   if(!hasData()){S=structuredClone(SEED);save()}
-  saveLocal();render();setSync("db","Synchronisé");
+  saveLocal();render();setSync("db","Synchronisé");return "ok";
 }
 
 async function connect(){
-  loadLocal(); cle=readKey(); render();
+  try{localStorage.removeItem("budget-cle")}catch(e){}
+  if(location.hash.includes("k="))history.replaceState(null,"",location.pathname);
+  try{code=localStorage.getItem("budget-code")}catch(e){}
+  loadLocal(); render();
   if(!sb){setSync("local","Mode local (Supabase indisponible)");return}
-  if(cle)loadRemote(); else setSync("local","Clé d'accès manquante");
-  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadRemote()});
+  if(code)loadRemote(); else setSync("local","Code requis");
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&code)loadRemote()});
 }
 
 function vLogin(){
-  return `<form class="login card" id="keyForm" novalidate>
-    <h1>Clé d'accès</h1>
-    <p class="note">${badKey?"Cette clé n'est pas reconnue. ":""}Ouvre ton lien personnel sur cet appareil, ou colle ici la clé (la partie après <b>#k=</b>). Tu ne le fais qu'une fois par appareil.</p>
-    <label class="field"><span class="label">Clé</span><input id="f_key" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Colle ta clé ou ton lien"></label>
-    <button class="btn" type="submit">Ouvrir mon budget</button>
+  return `<form class="login card" id="pinForm" novalidate>
+    <h1>Code d'accès</h1>
+    <p class="note">Une seule fois sur cet appareil, ensuite l'app s'ouvre directement.</p>
+    <label class="field"><span class="label">Code</span><input id="f_pin" class="bigin" type="password" inputmode="numeric" autocomplete="current-password" pattern="[0-9]*" maxlength="12" style="letter-spacing:.3em;text-align:center"></label>
+    <button class="btn" type="submit" id="pinBtn">Entrer</button>
+    ${pinMsg?`<p class="note" style="color:var(--down)">${esc(pinMsg)}</p>`:""}
     <button class="linkbtn" type="button" id="offline">Continuer sans synchro (sur cet appareil seulement)</button>
   </form>`;
 }
 function wireLogin(){
-  $("keyForm").onsubmit=e=>{e.preventDefault();
-    const v=$("f_key").value.trim(); const m=v.match(/([A-Za-z0-9_-]{32,})\s*$/);
-    if(!m)return;
-    cle=m[1];try{localStorage.setItem("budget-cle",cle)}catch(e){}
-    history.replaceState(null,"",location.pathname+"#k="+cle);
-    badKey=false;render();loadRemote();
+  setTimeout(()=>$("f_pin")?.focus(),50);
+  $("pinForm").onsubmit=async e=>{e.preventDefault();
+    const v=$("f_pin").value.replace(/\s/g,""); if(!v)return;
+    $("pinBtn").disabled=true; code=v;
+    const r=await loadRemote();
+    if(r==="ok"){try{localStorage.setItem("budget-code",v)}catch(e){}}
+    else{code=null;render();if(r===null)setSync("local","Erreur de connexion, réessaie")}
   };
   $("offline").onclick=()=>{offline=true;render();setSync("local","Sur cet appareil seulement")};
 }
 function accountSheet(){
-  if(!cle||badKey){offline=false;render();return}
+  if(!code){offline=false;render();return}
   const bg=document.createElement("div");bg.className="sheet-bg";
-  bg.innerHTML=`<div class="sheet"><h2 style="font-size:1.2rem">Accès</h2><p class="note">Cet appareil est relié à ton budget. Pour ajouter un autre appareil, ouvre ton lien personnel dessus. Ne partage jamais ce lien : il donne accès à tes données.</p>
-    <div class="actions-row"><button class="btn danger" id="forget">Oublier cet appareil</button><button class="btn plain" id="close">Fermer</button></div></div>`;
+  bg.innerHTML=`<div class="sheet"><h2 style="font-size:1.2rem">Accès</h2><p class="note">Cet appareil retient ton code. Pour ajouter un autre appareil, ouvre le site dessus et entre ton code.</p>
+    <div class="actions-row"><button class="btn danger" id="forget">Verrouiller cet appareil</button><button class="btn plain" id="close">Fermer</button></div></div>`;
   document.body.appendChild(bg);
   bg.addEventListener("click",e=>{if(e.target===bg)bg.remove()});
   bg.querySelector("#close").onclick=()=>bg.remove();
-  bg.querySelector("#forget").onclick=()=>{try{localStorage.removeItem("budget-cle");localStorage.removeItem(LS_KEY)}catch(e){}cle=null;S=structuredClone(DEFAULT);history.replaceState(null,"",location.pathname);bg.remove();render();setSync("local","Clé d'accès manquante")};
+  bg.querySelector("#forget").onclick=()=>{oublierCode();try{localStorage.removeItem(LS_KEY)}catch(e){}S=structuredClone(DEFAULT);pinMsg="";bg.remove();render();setSync("local","Code requis")};
 }
 
 /* ---------- calculs ---------- */
@@ -354,7 +360,7 @@ function render(){
   $("greet").textContent={mois:"Tableau de bord",depenses:"Dépenses",fixe:"Entrées et charges fixes",projets:"Projets"}[tab];
   document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===tab));
   const v=$("view");
-  const needLogin=sb&&(!cle||badKey)&&!offline;
+  const needLogin=sb&&!code&&!offline;
   document.body.classList.toggle("nologin",!!needLogin);
   if(needLogin){v.className="narrow";document.body.classList.remove("fit");v.innerHTML=vLogin();wireLogin();setSync("local","Non connecté");return}
   v.className=tab==="mois"?"":"narrow";
