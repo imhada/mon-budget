@@ -230,7 +230,7 @@ const REV_TYPES={salaire:"Salaire net",pension:"Pension / aide famille",aide:"Ai
 const GROUPES={logement:"Logement",abonnements:"Abonnements",transport:"Transport",autre:"Autres charges"};
 const DEFAULT={revenus:[],charges:[],enveloppes:[],depenses:[],projets:[]};
 let S=structuredClone(DEFAULT), tab="mois", now=new Date(), cur={y:now.getFullYear(),m:now.getMonth()};
-let saveT=null, pending=false, user=null, offline=false, loginEmail="", signupMode=false;
+let saveT=null, pending=false, cle=null, badKey=false, offline=false;
 const LS_KEY="budget-gautier";
 const SUPABASE_URL="https://ubkcaufyyrqwwjpptrso.supabase.co";
 const SUPABASE_KEY="sb_publishable_DBgF1on72HKlHod21iSLig_4-9izcWW";
@@ -254,21 +254,27 @@ const ICON={
   wallet:'<rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M16 13h2M3 9.5h18M6 6l9-2.5 1.5 2.5"/>'};
 const ic=k=>`<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg></span>`;
 
-/* ---------- Stockage : Supabase avec connexion par e-mail ---------- */
-// La clé publishable peut être publique : la sécurité vient des règles RLS (chacun ne lit que sa ligne).
+/* ---------- Stockage : Supabase protégé par un lien secret ---------- */
+// La clé d'accès n'est jamais dans ce code : elle arrive par le lien (#k=...) et reste sur l'appareil.
+// La table est fermée ; seules deux fonctions (get_budget / save_budget) répondent, et seulement avec la bonne clé.
 function setSync(m,t){$("dot").className="dot "+(m==="db"?"ok":"local");$("synctxt").textContent=t}
 function loadLocal(){try{const r=localStorage.getItem(LS_KEY);if(r)S={...DEFAULT,...JSON.parse(r)}}catch(e){}}
 function saveLocal(){try{localStorage.setItem(LS_KEY,JSON.stringify(S))}catch(e){}}
 const hasData=()=>S.revenus.length||S.charges.length||S.depenses.length||S.projets.length||S.enveloppes.length;
+function readKey(){
+  const m=location.hash.match(/k=([A-Za-z0-9_-]{32,})/);
+  if(m){try{localStorage.setItem("budget-cle",m[1])}catch(e){}return m[1]}
+  try{return localStorage.getItem("budget-cle")}catch(e){return null}
+}
 
 function save(){
   saveLocal();
-  if(!sb||!user)return;
+  if(!sb||!cle)return;
   clearTimeout(saveT);pending=true;setSync("db","Enregistrement…");
   saveT=setTimeout(async()=>{
     try{
-      const {error}=await sb.from("budget_store").upsert({id:user.id,data:S,updated_at:new Date().toISOString()});
-      if(error)throw error;
+      const {data,error}=await sb.rpc("save_budget",{k:cle,d:S});
+      if(error||data!==true)throw error||new Error("refusé");
       setSync("db","Synchronisé");
     }catch(e){setSync("local","Non synchronisé, réessaie plus tard")}
     pending=false;
@@ -276,79 +282,52 @@ function save(){
 }
 
 async function loadRemote(){
-  if(!sb||!user||pending)return;
+  if(!sb||!cle||pending)return;
   setSync("db","Chargement…");
-  const {data,error}=await sb.from("budget_store").select("data").eq("id",user.id).maybeSingle();
+  const {data,error}=await sb.rpc("get_budget",{k:cle});
   if(error){setSync("local","Erreur de synchro");return}
-  if(data?.data){S={...DEFAULT,...data.data};saveLocal();render();setSync("db","Synchronisé")}
-  else{ if(!hasData())S=structuredClone(SEED); render(); save(); }
+  if(data===null){badKey=true;render();setSync("local","Clé d'accès invalide");return}
+  badKey=false;
+  S={...DEFAULT,...data};
+  if(!hasData()){S=structuredClone(SEED);save()}
+  saveLocal();render();setSync("db","Synchronisé");
 }
 
 async function connect(){
-  loadLocal();
-  if(!sb){render();setSync("local","Mode local (Supabase indisponible)");return}
-  const {data:{session}}=await sb.auth.getSession();
-  user=session?.user||null;
-  sb.auth.onAuthStateChange((ev,s)=>{
-    const was=user?.id; user=s?.user||null;
-    if(user&&user.id!==was){offline=false;loadRemote()}
-    if(!user&&!offline){render()}
-  });
-  render();
-  if(user)loadRemote();
+  loadLocal(); cle=readKey(); render();
+  if(!sb){setSync("local","Mode local (Supabase indisponible)");return}
+  if(cle)loadRemote(); else setSync("local","Clé d'accès manquante");
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadRemote()});
 }
 
 function vLogin(){
-  return `<form class="login card" id="loginForm" novalidate>
-    <h1>${signupMode?"Créer mon compte":"Connexion"}</h1>
-    <p class="note">${signupMode?"Choisis un mot de passe (8 caractères minimum). Tu ne le feras qu'une fois.":"Une seule fois par appareil, ensuite tu restes connecté."}</p>
-    <label class="field"><span class="label">E-mail</span><input id="f_email" type="email" autocomplete="email" inputmode="email" placeholder="toi@exemple.fr" value="${esc(loginEmail)}"></label>
-    <label class="field"><span class="label">Mot de passe</span><input id="f_pass" type="password" autocomplete="${signupMode?"new-password":"current-password"}" minlength="8"></label>
-    <button class="btn" type="submit" id="loginBtn">${signupMode?"Créer mon compte":"Me connecter"}</button>
-    <p id="loginMsg" class="note" hidden></p>
-    <button class="linkbtn" type="button" id="switchMode">${signupMode?"J'ai déjà un compte : me connecter":"Première fois ? Créer mon compte"}</button>
+  return `<form class="login card" id="keyForm" novalidate>
+    <h1>Clé d'accès</h1>
+    <p class="note">${badKey?"Cette clé n'est pas reconnue. ":""}Ouvre ton lien personnel sur cet appareil, ou colle ici la clé (la partie après <b>#k=</b>). Tu ne le fais qu'une fois par appareil.</p>
+    <label class="field"><span class="label">Clé</span><input id="f_key" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Colle ta clé ou ton lien"></label>
+    <button class="btn" type="submit">Ouvrir mon budget</button>
     <button class="linkbtn" type="button" id="offline">Continuer sans synchro (sur cet appareil seulement)</button>
   </form>`;
 }
 function wireLogin(){
-  const msg=t=>{$("loginMsg").textContent=t;$("loginMsg").hidden=false};
-  $("switchMode").onclick=()=>{loginEmail=$("f_email").value.trim();signupMode=!signupMode;render()};
-  $("loginForm").onsubmit=async e=>{
-    e.preventDefault();
-    loginEmail=$("f_email").value.trim(); const password=$("f_pass").value;
-    if(!/^\S+@\S+\.\S+$/.test(loginEmail))return msg("Entre une adresse e-mail valide.");
-    if(password.length<8)return msg("Le mot de passe doit faire au moins 8 caractères.");
-    $("loginBtn").disabled=true;
-    if(signupMode){
-      const {data,error}=await sb.auth.signUp({email:loginEmail,password,options:{emailRedirectTo:location.origin+location.pathname}});
-      $("loginBtn").disabled=false;
-      if(error)return msg("Création impossible : "+traduire(error.message));
-      if(!data.session){signupMode=false;render();$("loginMsg").textContent="Compte créé. Ouvre l'e-mail de confirmation (n'importe quel appareil), clique sur le lien, puis reviens ici te connecter.";$("loginMsg").hidden=false}
-    }else{
-      const {error}=await sb.auth.signInWithPassword({email:loginEmail,password});
-      $("loginBtn").disabled=false;
-      if(error)return msg(traduire(error.message));
-    }
+  $("keyForm").onsubmit=e=>{e.preventDefault();
+    const v=$("f_key").value.trim(); const m=v.match(/([A-Za-z0-9_-]{32,})\s*$/);
+    if(!m)return;
+    cle=m[1];try{localStorage.setItem("budget-cle",cle)}catch(e){}
+    history.replaceState(null,"",location.pathname+"#k="+cle);
+    badKey=false;render();loadRemote();
   };
   $("offline").onclick=()=>{offline=true;render();setSync("local","Sur cet appareil seulement")};
 }
-function traduire(m){
-  if(/invalid login/i.test(m))return "E-mail ou mot de passe incorrect.";
-  if(/not confirmed/i.test(m))return "Confirme d'abord ton adresse avec le lien reçu par e-mail.";
-  if(/already registered/i.test(m))return "Un compte existe déjà avec cet e-mail : connecte-toi.";
-  if(/rate limit/i.test(m))return "Trop d'essais, réessaie dans quelques minutes.";
-  return m;
-}
 function accountSheet(){
-  if(!user){offline=false;render();return}
+  if(!cle||badKey){offline=false;render();return}
   const bg=document.createElement("div");bg.className="sheet-bg";
-  bg.innerHTML=`<div class="sheet"><h2 style="font-size:1.2rem">Compte</h2><p class="note">Connecté avec <b>${esc(user.email)}</b>. Tes données sont enregistrées dans Supabase et visibles uniquement par ce compte.</p>
-    <div class="actions-row"><button class="btn danger" id="logout">Se déconnecter</button><button class="btn plain" id="close">Fermer</button></div></div>`;
+  bg.innerHTML=`<div class="sheet"><h2 style="font-size:1.2rem">Accès</h2><p class="note">Cet appareil est relié à ton budget. Pour ajouter un autre appareil, ouvre ton lien personnel dessus. Ne partage jamais ce lien : il donne accès à tes données.</p>
+    <div class="actions-row"><button class="btn danger" id="forget">Oublier cet appareil</button><button class="btn plain" id="close">Fermer</button></div></div>`;
   document.body.appendChild(bg);
   bg.addEventListener("click",e=>{if(e.target===bg)bg.remove()});
   bg.querySelector("#close").onclick=()=>bg.remove();
-  bg.querySelector("#logout").onclick=async()=>{await sb.auth.signOut();try{localStorage.removeItem(LS_KEY)}catch(e){}S=structuredClone(DEFAULT);bg.remove();render()};
+  bg.querySelector("#forget").onclick=()=>{try{localStorage.removeItem("budget-cle");localStorage.removeItem(LS_KEY)}catch(e){}cle=null;S=structuredClone(DEFAULT);history.replaceState(null,"",location.pathname);bg.remove();render();setSync("local","Clé d'accès manquante")};
 }
 
 /* ---------- calculs ---------- */
@@ -375,7 +354,7 @@ function render(){
   $("greet").textContent={mois:"Tableau de bord",depenses:"Dépenses",fixe:"Entrées et charges fixes",projets:"Projets"}[tab];
   document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===tab));
   const v=$("view");
-  const needLogin=sb&&!user&&!offline;
+  const needLogin=sb&&(!cle||badKey)&&!offline;
   document.body.classList.toggle("nologin",!!needLogin);
   if(needLogin){v.className="narrow";document.body.classList.remove("fit");v.innerHTML=vLogin();wireLogin();setSync("local","Non connecté");return}
   v.className=tab==="mois"?"":"narrow";
