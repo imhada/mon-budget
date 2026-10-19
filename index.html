@@ -351,7 +351,8 @@ function calc(y=cur.y,m=cur.m,upto=null){
   const k=mkey(y,m);
   const rev=sum(S.revenus,r=>r.montant);
   const fixe=sum(S.charges,c=>c.montant);
-  const projM=sum(S.projets.filter(p=>(+p.epargne||0)<(+p.cible||0)),p=>p.mensuel);
+  // Argent déplacé vers les projets ce mois-ci : il sort du reste à vivre
+  const projM=sum(S.projets.flatMap(p=>p.versements||[]).filter(v=>(v.date||"").startsWith(k)),v=>v.montant);
   let txs=S.depenses.filter(d=>(d.date||"").startsWith(k));
   if(upto)txs=txs.filter(d=>+d.date.slice(8,10)<=upto);
   const dep=sum(txs.filter(d=>d.sens!=="in"),d=>d.montant);
@@ -545,7 +546,7 @@ function vProj(){
     </div>`}).join("");
   return `
     <div class="sechead"><span class="t">Projets</span><b>${eur(sum(S.projets,p=>p.epargne))} de côté</b></div>
-    <p class="note">Ce que tu veux t'offrir ou financer. La mise de côté mensuelle est retirée de ton budget pour vivre, comme une charge fixe : c'est ce qui la rend réelle.</p>
+    <p class="note">Ce que tu veux t'offrir ou financer. Chaque « Mettre de côté » déplace l'argent vers le projet : le montant est retiré de ton reste à vivre du mois.</p>
     ${cards||`<div class="card"><div class="empty">Aucun projet. Exemple : une montre à 400 €, 50 € par mois.</div></div>`}
     <button class="add" data-act="addProj">+ Nouveau projet</button>`;
 }
@@ -608,11 +609,11 @@ function act(a,id){
       {name:"nom",label:"Nom",value:p.nom,ph:"Montre, voyage, permis…"},
       {name:"cible",label:"Coût total (€)",type:"number",big:1,value:p.cible},
       {name:"epargne",label:"Déjà mis de côté (€)",type:"number",value:p.epargne??0},
-      {name:"mensuel",label:"À mettre de côté chaque mois (€)",type:"number",value:p.mensuel??0}],
+      {name:"mensuel",label:"Objectif par mois (€), facultatif",type:"number",value:p.mensuel??0}],
       v=>{if(!v.nom)return "Donne un nom.";if(!(v.cible>0))return "Entre le coût total.";Object.assign(p,v);if(!p.id){p.id=uid();S.projets.push(p)}},p.id&&rm("projets"))}
   if(a==="fundProj"){const p=find("projets");
-    sheet(`Mettre de côté pour ${esc(p.nom)}`,[{name:"m",label:"Montant (€)",type:"number",big:1,value:p.mensuel||""}],
-      v=>{if(!v.m)return "Entre un montant.";p.epargne=Math.round(((+p.epargne||0)+v.m)*100)/100})}
+    sheet(`Mettre de côté pour ${esc(p.nom)}`,[{name:"m",label:"Montant (€), retiré de ton reste à vivre",type:"number",big:1,value:p.mensuel||""}],
+      v=>{if(!(v.m>0))return "Entre un montant.";p.epargne=Math.round(((+p.epargne||0)+v.m)*100)/100;(p.versements??=[]).push({date:today(),montant:v.m})})}
 }
 
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();window.scrollTo(0,0)});
