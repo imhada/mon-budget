@@ -552,7 +552,7 @@ function vProj(){
 }
 
 /* ---------- feuille d'édition ---------- */
-function sheet(title,fields,onSave,onDelete){
+function sheet(title,fields,onSave,onDelete,delInfo){
   const bg=document.createElement("div");bg.className="sheet-bg";
   bg.innerHTML=`<form class="sheet" novalidate><h2 style="font-size:1.2rem">${title}</h2>${fields.map(f=>{
     if(f.type==="seg")return `<div class="field"><span class="label">${f.label}</span><div class="seg" data-name="${f.name}">${Object.entries(f.options).map(([k,l])=>`<button type="button" data-v="${k}" aria-pressed="${k===f.value}">${l}</button>`).join("")}</div></div>`;
@@ -566,7 +566,7 @@ function sheet(title,fields,onSave,onDelete){
   bg.addEventListener("click",e=>{if(e.target===bg)close()});
   $("cancel").onclick=close;
   let armed=false;
-  if(onDelete)$("del").onclick=()=>{if(!armed){armed=true;$("del").textContent="Confirmer la suppression";return}onDelete();save();render();close()};
+  if(onDelete)$("del").onclick=()=>{if(!armed){armed=true;$("del").textContent=delInfo||"Confirmer la suppression";return}onDelete();save();render();close()};
   form.onsubmit=e=>{e.preventDefault();const v={};
     fields.forEach(f=>{if(f.type==="seg")v[f.name]=form.querySelector(`[data-name="${f.name}"] [aria-pressed="true"]`)?.dataset.v;else{const x=form.elements[f.name].value;v[f.name]=f.type==="number"?parseFloat(String(x).replace(",","."))||0:x.trim()}});
     const err=onSave(v); if(err){$("err").textContent=err;$("err").hidden=false;return}
@@ -610,7 +610,14 @@ function act(a,id){
       {name:"cible",label:"Coût total (€)",type:"number",big:1,value:p.cible},
       {name:"epargne",label:"Déjà mis de côté (€)",type:"number",value:p.epargne??0},
       {name:"mensuel",label:"Objectif par mois (€), facultatif",type:"number",value:p.mensuel??0}],
-      v=>{if(!v.nom)return "Donne un nom.";if(!(v.cible>0))return "Entre le coût total.";Object.assign(p,v);if(!p.id){p.id=uid();S.projets.push(p)}},p.id&&rm("projets"))}
+      v=>{if(!v.nom)return "Donne un nom.";if(!(v.cible>0))return "Entre le coût total.";Object.assign(p,v);if(!p.id){p.id=uid();S.projets.push(p)}},
+      p.id&&(()=>{ // l'argent du projet revient dans le reste à vivre
+        const d=today(), ce=sum((p.versements||[]).filter(x=>(x.date||"").startsWith(d.slice(0,7))),x=>x.montant);
+        const retour=Math.round(((+p.epargne||0)-ce)*100)/100; // les versements du mois reviennent d'eux-mêmes en supprimant le projet
+        if(retour>0)S.depenses.push({id:uid(),montant:retour,sens:"in",env:"",note:"Retour du projet "+p.nom,date:d});
+        rm("projets")();
+      }),
+      p.id&&+p.epargne>0?`Confirmer : ${eur(+p.epargne)} reviennent dans ton reste à vivre`:null)}
   if(a==="fundProj"){const p=find("projets");
     sheet(`Mettre de côté pour ${esc(p.nom)}`,[{name:"m",label:"Montant (€), retiré de ton reste à vivre",type:"number",big:1,value:p.mensuel||""}],
       v=>{if(!(v.m>0))return "Entre un montant.";p.epargne=Math.round(((+p.epargne||0)+v.m)*100)/100;(p.versements??=[]).push({date:today(),montant:v.m})})}
