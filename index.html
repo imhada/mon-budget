@@ -230,7 +230,8 @@ const REV_TYPES={salaire:"Salaire net",pension:"Pension / aide famille",aide:"Ai
 const GROUPES={logement:"Logement",abonnements:"Abonnements",transport:"Transport",autre:"Autres charges"};
 const DEFAULT={revenus:[],charges:[],enveloppes:[],depenses:[],projets:[]};
 let S=structuredClone(DEFAULT), tab="mois", now=new Date(), cur={y:now.getFullYear(),m:now.getMonth()};
-let saveT=null, pending=false, code=null, pinMsg="", offline=false;
+let saveT=null, pending=false, code=null, pinMsg="", offline=false, canal=null, differe=false;
+const APPAREIL=Math.random().toString(36).slice(2);
 const LS_KEY="budget-gautier";
 const SUPABASE_URL="https://ubkcaufyyrqwwjpptrso.supabase.co";
 const SUPABASE_KEY="sb_publishable_DBgF1on72HKlHod21iSLig_4-9izcWW";
@@ -274,14 +275,16 @@ function save(){
       if(error)throw error;
       if(data!=="ok"){if(data==="code"){oublierCode();render()}throw new Error(data)}
       setSync("db","Synchronisé");
+      try{canal?.send({type:"broadcast",event:"maj",payload:{de:APPAREIL}})}catch(e){}
     }catch(e){setSync("local","Non synchronisé, réessaie plus tard")}
     pending=false;
   },500);
 }
 
-async function loadRemote(){
+async function loadRemote(silencieux){
   if(!sb||!code||pending)return null;
-  setSync("db","Chargement…");
+  if(document.querySelector(".sheet-bg")){differe=true;return null}
+  if(!silencieux)setSync("db","Chargement…");
   const {data,error}=await sb.rpc("get_budget",{c:code});
   if(error){setSync("local","Erreur de synchro");return null}
   if(data&&data._erreur){
@@ -302,6 +305,11 @@ async function connect(){
   if(!sb){setSync("local","Mode local (Supabase indisponible)");return}
   if(code)loadRemote(); else setSync("local","Code requis");
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&code)loadRemote()});
+  // Synchro en direct : un appareil qui enregistre envoie un simple signal (aucune donnée), les autres rechargent.
+  try{
+    canal=sb.channel("budget-maj").on("broadcast",{event:"maj"},m=>{if(m.payload?.de!==APPAREIL&&code)loadRemote(true)}).subscribe();
+  }catch(e){}
+  setInterval(()=>{if(document.visibilityState==="visible"&&code)loadRemote(true)},30000);
 }
 
 function vLogin(){
@@ -550,7 +558,7 @@ function sheet(title,fields,onSave,onDelete){
     <p id="err" style="margin:0;color:var(--down);font-size:.88rem" hidden></p>
     <div class="actions-row"><div>${onDelete?`<button type="button" class="btn danger" id="del">Supprimer</button>`:""}</div><div style="display:flex;gap:8px"><button type="button" class="btn plain" id="cancel">Annuler</button><button class="btn" type="submit">Enregistrer</button></div></div></form>`;
   document.body.appendChild(bg);
-  const form=bg.querySelector("form"), close=()=>bg.remove();
+  const form=bg.querySelector("form"), close=()=>{bg.remove();if(differe){differe=false;setTimeout(()=>loadRemote(true),600)}};
   bg.querySelectorAll(".seg").forEach(s=>s.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;s.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));}));
   bg.addEventListener("click",e=>{if(e.target===bg)close()});
   $("cancel").onclick=close;
