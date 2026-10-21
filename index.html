@@ -297,7 +297,75 @@ async function loadRemote(silencieux){
   pinMsg="";
   S={...DEFAULT,...data};
   if(!hasData()){S=structuredClone(SEED);save()}
-  saveLocal();render();setSync("db","Synchronisé");return "ok";
+  saveLocal();render();setSync("db","Synchronisé");
+  if(!banque||Date.now()-(banque.t||0)>10*60e3){(retourBanque().then(r=>r||syncBanque())).then(()=>{if(banque)banque.t=Date.now()})}
+  return "ok";
+}
+
+/* ---------- Banque (Enable Banking via la fonction Supabase « banque ») ---------- */
+let banque=null, banqueOcc=false;
+async function appelBanque(action,extra={}){
+  const {data,error}=await sb.functions.invoke("banque",{body:{action,c:code,...extra}});
+  if(error){let m=error.message;try{const j=await error.context?.json?.();if(j?.erreur)m=j.erreur}catch(e){}throw new Error(m)}
+  if(data?.erreur&&!data.connecte)throw new Error(data.erreur);
+  return data;
+}
+const proche=(a,b,tol)=>Math.abs(a-b)<=tol;
+const norm=t=>String(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+// Range les opérations bancaires dans HAZEL sans jamais compter deux fois la même somme
+function importerBanque(liste){
+  S.bankVus??=[]; const vus=new Set(S.bankVus); let n=0;
+  for(const t of liste){
+    const id="b:"+t.id; if(vus.has(id))continue; vus.add(id);
+    const m=+t.amount, d={id,montant:m,sens:t.sens,env:"",note:t.label,date:t.booking_date,source:"banque"}, lib=norm(t.label);
+    if(t.sens==="out"){
+      const ch=S.charges.find(c=>+c.montant>0&&(proche(m,+c.montant,1)||(norm(c.nom).length>=4&&lib.includes(norm(c.nom)))));
+      if(ch){d.ignore="fixe";d.raison="Déjà compté dans Fixe : "+ch.nom}
+    }else{
+      const rv=S.revenus.find(r=>+r.montant>0&&(proche(m,+r.montant,Math.max(5,r.montant*0.05))||(norm(r.nom).length>=4&&lib.includes(norm(r.nom)))));
+      if(rv){d.ignore="fixe";d.raison="Déjà compté dans les entrées : "+rv.nom}
+    }
+    if(!d.ignore){ // déjà saisi à la main ? même sens, même montant, à 3 jours près
+      const dt=new Date(d.date).getTime();
+      const man=S.depenses.find(x=>!x.source&&!x.lienBanque&&x.sens===d.sens&&proche(+x.montant,m,0.01)&&Math.abs(new Date(x.date).getTime()-dt)<=3*864e5);
+      if(man){d.ignore="doublon";d.raison="Déjà saisie à la main le "+new Date(man.date+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});man.lienBanque=id}
+    }
+    S.depenses.push(d);n++;
+  }
+  S.bankVus=[...vus].slice(-3000);
+  return n;
+}
+async function syncBanque(action="sync",extra={}){
+  if(!sb||!code||banqueOcc)return;
+  banqueOcc=true;
+  try{
+    banque=await appelBanque(action,extra);
+    if(banque.connecte&&banque.transactions?.length&&importerBanque(banque.transactions))save();
+  }catch(e){banque={...(banque||{}),erreurAppel:e.message}}
+  banqueOcc=false;render();
+}
+async function retourBanque(){ // retour de la validation dans « Ma Banque »
+  const q=new URLSearchParams(location.search); if(!q.get("code")||!q.get("state"))return false;
+  history.replaceState(null,"",location.pathname);
+  await syncBanque("session",{code:q.get("code"),state:q.get("state")});
+  tab="depenses";render();return true;
+}
+function vBanque(){
+  if(!sb)return "";
+  const b=banque;
+  if(!b)return `<div class="card"><div class="cardhead"><h2>Compte bancaire</h2></div><div class="empty">Vérification…</div></div>`;
+  const err=b.erreurAppel||b.erreur?`<p class="note" style="color:var(--down)">${esc(b.erreurAppel||b.erreur)}</p>`:"";
+  if(!b.connecte)return `<div class="card"><div class="cardhead"><h2>Compte bancaire</h2></div>
+    <p class="note">${b.expire?"L'accès à ta banque a expiré (la loi impose une nouvelle validation environ tous les 6 mois).":"Relie ton compte : tes opérations arrivent toutes seules dans HAZEL."}</p>${err}
+    <button class="btn" data-act="lierBanque" style="align-self:flex-start">${b.expire?"Revalider l'accès":"Connecter ma banque"}</button></div>`;
+  const soldes=Object.values(b.soldes||{});
+  const jours=b.valid_until?Math.ceil((new Date(b.valid_until)-Date.now())/864e5):null;
+  const aClasser=S.depenses.filter(d=>d.source==="banque"&&!d.ignore&&d.sens==="out"&&!d.env).length;
+  return `<div class="card"><div class="cardhead"><h2>Compte bancaire</h2><button class="chip" data-act="syncBanque">${banqueOcc?"Synchro…":"Actualiser"}</button></div>
+    ${soldes.map(x=>`<div class="kv"><span class="name">${esc(x.nom)}</span><b>${eur(x.montant)}</b></div>`).join("")||`<div class="empty">Solde indisponible pour l'instant.</div>`}
+    <span class="grey small">${b.last_sync?"Mis à jour "+new Date(b.last_sync).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""}${aClasser?` · <b style="color:var(--navy)">${aClasser} opération${aClasser>1?"s":""} à classer</b>`:""}</span>
+    ${jours!==null&&jours<=14?`<p class="note" style="color:var(--down)">L'accès bancaire expire dans ${jours} jour${jours>1?"s":""}.</p><button class="btn" data-act="lierBanque" style="align-self:flex-start">Revalider l'accès</button>`:""}${err}
+  </div>`;
 }
 
 async function connect(){
@@ -363,7 +431,8 @@ function calc(y=cur.y,m=cur.m,upto=null){
   const fixe=sum(S.charges,c=>c.montant);
   // Argent déplacé vers les projets ce mois-ci : il sort du reste à vivre
   const projM=sum(S.projets.flatMap(p=>p.versements||[]).filter(v=>(v.date||"").startsWith(k)),v=>v.montant);
-  let txs=S.depenses.filter(d=>(d.date||"").startsWith(k));
+  let tous=S.depenses.filter(d=>(d.date||"").startsWith(k));
+  let txs=tous.filter(d=>!d.ignore);
   if(upto)txs=txs.filter(d=>+d.date.slice(8,10)<=upto);
   const dep=sum(txs.filter(d=>d.sens!=="in"),d=>d.montant);
   const extra=sum(txs.filter(d=>d.sens==="in"),d=>d.montant);
@@ -372,7 +441,7 @@ function calc(y=cur.y,m=cur.m,upto=null){
   const isCur=y===now.getFullYear()&&m===now.getMonth();
   const isPast=new Date(y,m+1,1)<=new Date(now.getFullYear(),now.getMonth(),1);
   const jours=isCur?dim-now.getDate()+1:(isPast?0:dim);
-  return {k,rev,fixe,projM,dep,extra,dispo,reste,dim,jours,isCur,isPast,txs,envBud:sum(S.enveloppes,e=>e.budget)};
+  return {k,rev,fixe,projM,dep,extra,dispo,reste,dim,jours,isCur,isPast,txs,tous,envBud:sum(S.enveloppes,e=>e.budget)};
 }
 
 /* ---------- rendu ---------- */
@@ -514,16 +583,17 @@ function vMois(){
 
 function vDep(){
   const c=calc(); const envName=id=>S.enveloppes.find(e=>e.id===id)?.nom||"Sans enveloppe";
-  const txs=[...c.txs].sort((a,b)=>b.date.localeCompare(a.date));
+  const txs=[...c.tous].sort((a,b)=>b.date.localeCompare(a.date));
   const byDay={}; txs.forEach(t=>(byDay[t.date]??=[]).push(t));
   const days=Object.keys(byDay).map(d=>{
     const lab=new Date(d+"T12:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
     return `<div class="grouphead"><span style="text-transform:capitalize">${lab}</span><span>${eur(sum(byDay[d].filter(t=>t.sens!=="in"),t=>t.montant))}</span></div>`+
-      byDay[d].map(t=>`<button class="row" data-act="editDep" data-id="${t.id}"><div class="grow"><span class="name">${esc(t.note||envName(t.env))}</span><span class="grey small">${t.sens==="in"?"Rentrée ponctuelle":esc(envName(t.env))}</span></div><span class="amt ${t.sens==="in"?"plus":""}">${t.sens==="in"?"+":"−"}${eur(+t.montant)}</span></button>`).join("")}).join("");
+      byDay[d].map(t=>`<button class="row" data-act="editDep" data-id="${t.id}" style="${t.ignore?"opacity:.5":""}"><div class="grow"><span class="name">${esc(t.note||envName(t.env))}${t.source==="banque"?`<span class="tag">Banque</span>`:""}</span><span class="grey small">${t.ignore?esc(t.raison||"Non compté"):t.sens==="in"?"Rentrée":t.source==="banque"&&!t.env?"À classer : choisis une enveloppe":esc(envName(t.env))}</span></div><span class="amt ${t.sens==="in"&&!t.ignore?"plus":""}" style="${t.ignore?"text-decoration:line-through":""}">${t.sens==="in"?"+":"−"}${eur(+t.montant)}</span></button>`).join("")}).join("");
   return `
+    ${vBanque()}
     <div class="sechead"><span class="t">Dépenses du mois</span><b>${eur(c.dep)}</b></div>
     ${txs.length?`<div class="list">${days}</div>`:`<div class="list"><div class="empty">Rien de noté ce mois. Appuie sur <b>Dépense</b> quand tu payes quelque chose, ça prend 5 secondes.</div></div>`}
-    <p class="note">Les charges fixes (loyer, abonnements…) sont déjà comptées automatiquement : ne les note pas ici. Un remboursement de train ou une rentrée exceptionnelle se note en « Rentrée ».</p>`;
+    <p class="note">Les opérations de ta banque arrivent seules. Celles qui correspondent à tes charges fixes, à tes entrées ou à une dépense déjà notée sont barrées : elles restent visibles mais ne sont pas comptées deux fois. Touche une opération pour changer son enveloppe ou la compter quand même.</p>`;
 }
 
 function vFixe(){
@@ -618,8 +688,11 @@ function act(a,id){
       {name:"sens",label:"Sens",type:"seg",options:{out:"Dépense",in:"Rentrée"},value:d.sens||"out"},
       {name:"env",label:"Enveloppe",type:"select",options:envOpts(),value:d.env??S.enveloppes[0]?.id??""},
       {name:"note",label:"Note (facultatif)",value:d.note,ph:"Carrefour, resto…"},
-      {name:"date",label:"Date",type:"date",value:d.date||today()}],
-      v=>{if(!(v.montant>0))return "Entre un montant.";if(!v.date)return "Choisis une date.";Object.assign(d,v);if(!d.id){d.id=uid();S.depenses.push(d)}},d.id&&rm("depenses"))}
+      {name:"date",label:"Date",type:"date",value:d.date||today()},
+      ...(d.source==="banque"?[{name:"compter",label:"Compter dans le budget",type:"seg",options:{oui:"Oui",non:"Non (déjà dans Fixe, virement entre mes comptes…)"},value:d.ignore?"non":"oui"}]:[])],
+      v=>{if(!(v.montant>0))return "Entre un montant.";if(!v.date)return "Choisis une date.";
+        if(d.source==="banque"){if(v.compter==="non"){d.ignore=d.ignore||"manuel";d.raison=d.raison||"Non compté"}else{delete d.ignore;delete d.raison}delete v.compter}
+        Object.assign(d,v);if(!d.id){d.id=uid();S.depenses.push(d)}},d.id&&rm("depenses"))}
   if(a==="addProj"||a==="editProj"){const p=a==="editProj"?find("projets"):{};
     sheet(p.id?"Modifier le projet":"Nouveau projet",[
       {name:"nom",label:"Nom",value:p.nom,ph:"Montre, voyage, permis…"},
@@ -634,6 +707,23 @@ function act(a,id){
         rm("projets")();
       }),
       p.id&&+p.epargne>0?`Confirmer : ${eur(+p.epargne)} reviennent dans ton reste à vivre`:null)}
+  if(a==="syncBanque"){banque&&(banque.t=0);syncBanque();render();return}
+  if(a==="lierBanque"){
+    const bg=document.createElement("div");bg.className="sheet-bg";
+    bg.innerHTML=`<div class="sheet"><h2 style="font-size:1.2rem">Connecter ma banque</h2><p class="note">Choisis ta banque (pour le Crédit Agricole, ta caisse régionale), puis valide dans l'appli de ta banque. Tu reviens ensuite ici automatiquement.</p>
+      <label class="field"><span class="label">Rechercher</span><input id="f_bq" placeholder="agricole" value="agricole de normandie"></label>
+      <label class="field"><span class="label">Banque</span><select id="f_bqs"><option>Chargement…</option></select></label>
+      <p id="bqErr" class="note" style="color:var(--down)" hidden></p>
+      <div class="actions-row"><button class="btn plain" id="bqClose">Annuler</button><button class="btn" id="bqGo" disabled>Continuer vers ma banque</button></div></div>`;
+    document.body.appendChild(bg);
+    const err=t=>{bg.querySelector("#bqErr").textContent=t;bg.querySelector("#bqErr").hidden=false};
+    bg.querySelector("#bqClose").onclick=()=>bg.remove();
+    let liste=[];const remplir=()=>{const f=norm(bg.querySelector("#f_bq").value);const l=liste.filter(n=>norm(n).includes(f));bg.querySelector("#f_bqs").innerHTML=l.map(n=>`<option>${esc(n)}</option>`).join("")||"<option value=''>Aucune banque trouvée</option>";bg.querySelector("#bqGo").disabled=!l.length};
+    bg.querySelector("#f_bq").oninput=remplir;
+    appelBanque("banques").then(r=>{liste=r.banques||[];remplir()}).catch(e=>err(e.message));
+    bg.querySelector("#bqGo").onclick=async()=>{bg.querySelector("#bqGo").disabled=true;
+      try{const r=await appelBanque("connecter",{banque:bg.querySelector("#f_bqs").value});location.href=r.url}catch(e){err(e.message);bg.querySelector("#bqGo").disabled=false}};
+    return}
   if(a==="takeProj"){const p=find("projets");
     sheet(`Retirer de ${esc(p.nom)}`,[{name:"m",label:`Montant (€), rendu à ton reste à vivre (max ${eur(+p.epargne||0)})`,type:"number",big:1,value:""}],
       v=>{if(!(v.m>0))return "Entre un montant.";if(v.m>(+p.epargne||0)+0.001)return `Le projet ne contient que ${eur(+p.epargne||0)}.`;
