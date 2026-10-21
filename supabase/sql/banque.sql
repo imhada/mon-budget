@@ -26,3 +26,6 @@ select cron.schedule('hazel-banque', '7 */6 * * *', $$
   );
 $$);
 select jobname, schedule from cron.job;
+
+-- Opérations en attente (à venir), remplacées à chaque synchro
+alter table public.bank_state add column if not exists pending jsonb;

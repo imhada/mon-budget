@@ -335,6 +335,18 @@ function importerBanque(liste){
   S.bankVus=[...vus].slice(-3000);
   return n;
 }
+// Paiements « à venir » : comptés tout de suite (comme le solde à venir de la banque), jamais enregistrés,
+// ils sont remplacés par l'opération définitive quand la banque la comptabilise.
+function enAttente(){
+  if(!banque?.connecte||!banque.attente?.length)return [];
+  return banque.attente.map(t=>{
+    const d={id:"p:"+t.id,montant:+t.amount,sens:t.sens,env:"",note:t.label,date:t.booking_date,source:"attente"},m=+t.amount,lib=norm(t.label);
+    const ch=t.sens==="out"?S.charges.find(c=>+c.montant>0&&(proche(m,+c.montant,1)||(norm(c.nom).length>=4&&lib.includes(norm(c.nom))))):null;
+    if(ch){d.ignore="fixe";d.raison="Déjà compté dans Fixe : "+ch.nom}
+    else{const dt=new Date(d.date).getTime();if(S.depenses.some(x=>!x.source&&x.sens===d.sens&&proche(+x.montant,m,0.01)&&Math.abs(new Date(x.date).getTime()-dt)<=3*864e5)){d.ignore="doublon";d.raison="Déjà saisie à la main"}}
+    return d;
+  });
+}
 async function syncBanque(action="sync",extra={}){
   if(!sb||!code||banqueOcc)return;
   banqueOcc=true;
@@ -362,7 +374,9 @@ function vBanque(){
   const jours=b.valid_until?Math.ceil((new Date(b.valid_until)-Date.now())/864e5):null;
   const aClasser=S.depenses.filter(d=>d.source==="banque"&&!d.ignore&&d.sens==="out"&&!d.env).length;
   return `<div class="card"><div class="cardhead"><h2>Compte bancaire</h2><button class="chip" data-act="syncBanque">${banqueOcc?"Synchro…":"Actualiser"}</button></div>
-    ${soldes.map(x=>`<div class="kv"><span class="name">${esc(x.nom)}</span><b>${eur(x.montant)}</b></div>`).join("")||`<div class="empty">Solde indisponible pour l'instant.</div>`}
+    ${soldes.map(x=>{const att=enAttente().filter(d=>!d.ignore||d.ignore!=="x").reduce((a,d)=>a+(d.sens==="in"?d.montant:-d.montant),0);
+      const av=x.aVenir!=null?x.aVenir:Math.round((x.montant+att)*100)/100;
+      return `<div class="kv"><span class="name">${esc(x.nom)}</span><b style="${x.montant<0?"color:var(--down)":""}">${eur(x.montant)}</b></div>${Math.abs(av-x.montant)>0.004?`<div class="kv"><span class="name grey">Solde à venir</span><b style="${av<0?"color:var(--down)":""}">${eur(av)}</b></div>`:""}`}).join("")||`<div class="empty">Solde indisponible pour l'instant.</div>`}
     <span class="grey small">${b.last_sync?"Mis à jour "+new Date(b.last_sync).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""}${aClasser?` · <b style="color:var(--navy)">${aClasser} opération${aClasser>1?"s":""} à classer</b>`:""}</span>
     ${jours!==null&&jours<=14?`<p class="note" style="color:var(--down)">L'accès bancaire expire dans ${jours} jour${jours>1?"s":""}.</p><button class="btn" data-act="lierBanque" style="align-self:flex-start">Revalider l'accès</button>`:""}${err}
   </div>`;
@@ -431,7 +445,7 @@ function calc(y=cur.y,m=cur.m,upto=null){
   const fixe=sum(S.charges,c=>c.montant);
   // Argent déplacé vers les projets ce mois-ci : il sort du reste à vivre
   const projM=sum(S.projets.flatMap(p=>p.versements||[]).filter(v=>(v.date||"").startsWith(k)),v=>v.montant);
-  let tous=S.depenses.filter(d=>(d.date||"").startsWith(k));
+  let tous=S.depenses.filter(d=>(d.date||"").startsWith(k)).concat(enAttente().filter(d=>d.date.startsWith(k)));
   let txs=tous.filter(d=>!d.ignore);
   if(upto)txs=txs.filter(d=>+d.date.slice(8,10)<=upto);
   const dep=sum(txs.filter(d=>d.sens!=="in"),d=>d.montant);
@@ -588,7 +602,7 @@ function vDep(){
   const days=Object.keys(byDay).map(d=>{
     const lab=new Date(d+"T12:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
     return `<div class="grouphead"><span style="text-transform:capitalize">${lab}</span><span>${eur(sum(byDay[d].filter(t=>t.sens!=="in"),t=>t.montant))}</span></div>`+
-      byDay[d].map(t=>`<button class="row" data-act="editDep" data-id="${t.id}" style="${t.ignore?"opacity:.5":""}"><div class="grow"><span class="name">${esc(t.note||envName(t.env))}${t.source==="banque"?`<span class="tag">Banque</span>`:""}</span><span class="grey small">${t.ignore?esc(t.raison||"Non compté"):t.sens==="in"?"Rentrée":t.source==="banque"&&!t.env?"À classer : choisis une enveloppe":esc(envName(t.env))}</span></div><span class="amt ${t.sens==="in"&&!t.ignore?"plus":""}" style="${t.ignore?"text-decoration:line-through":""}">${t.sens==="in"?"+":"−"}${eur(+t.montant)}</span></button>`).join("")}).join("");
+      byDay[d].map(t=>t.source==="attente"?`<div class="row" style="${t.ignore?"opacity:.5":""}"><div class="grow"><span class="name">${esc(t.note)}<span class="tag">À venir</span></span><span class="grey small">${t.ignore?esc(t.raison):"En attente à la banque, déjà compté"}</span></div><span class="amt" style="${t.ignore?"text-decoration:line-through":""}">${t.sens==="in"?"+":"−"}${eur(+t.montant)}</span></div>`:`<button class="row" data-act="editDep" data-id="${t.id}" style="${t.ignore?"opacity:.5":""}"><div class="grow"><span class="name">${esc(t.note||envName(t.env))}${t.source==="banque"?`<span class="tag">Banque</span>`:""}</span><span class="grey small">${t.ignore?esc(t.raison||"Non compté"):t.sens==="in"?"Rentrée":t.source==="banque"&&!t.env?"À classer : choisis une enveloppe":esc(envName(t.env))}</span></div><span class="amt ${t.sens==="in"&&!t.ignore?"plus":""}" style="${t.ignore?"text-decoration:line-through":""}">${t.sens==="in"?"+":"−"}${eur(+t.montant)}</span></button>`).join("")}).join("");
   return `
     ${vBanque()}
     <div class="sechead"><span class="t">Dépenses du mois</span><b>${eur(c.dep)}</b></div>

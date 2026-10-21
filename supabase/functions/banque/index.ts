@@ -76,6 +76,7 @@ async function synchro(psu: Psu, cron: boolean) {
       ? new Date(new Date(st.last_sync).getTime() - 7 * 86400e3)
       : new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
     const soldes: Record<string, unknown> = {};
+    const attente: any[] = []; // opérations « à venir » (paiements carte, pré-autorisations) : remplacées à chaque synchro
     try {
       for (const cpt of st.accounts || []) {
         const lignes: any[] = [];
@@ -88,13 +89,15 @@ async function synchro(psu: Psu, cron: boolean) {
           suite = r.continuation_key || null;
         } while (suite);
         const recs = [];
-        for (const t of lignes.filter((t) => !t.status || t.status === "BOOK")) {
+        for (const t of lignes) {
           const brut = parseFloat(t.transaction_amount?.amount ?? "0");
           const sens = t.credit_debit_indicator ? (t.credit_debit_indicator === "CRDT" ? "in" : "out") : brut < 0 ? "out" : "in";
           const libelle = ((t.remittance_information || []).join(" ").trim() || t.creditor?.name || t.debtor?.name || "Opération").replace(/\s+/g, " ");
           const date = t.booking_date || t.value_date || t.transaction_date;
           const base = t.entry_reference || t.transaction_id || `${date}|${brut}|${sens}|${libelle}`;
-          recs.push({ id: `${String(cpt.uid).slice(0, 8)}:${await empreinte(base)}`, account: cpt.uid, booking_date: date, amount: Math.abs(brut), sens, label: libelle.slice(0, 140) });
+          const ligne = { id: `${String(cpt.uid).slice(0, 8)}:${await empreinte(base)}`, account: cpt.uid, booking_date: date, amount: Math.abs(brut), sens, label: libelle.slice(0, 140) };
+          if (t.status && t.status !== "BOOK") attente.push({ ...ligne, booking_date: date || new Date().toISOString().slice(0, 10) });
+          else recs.push(ligne);
         }
         if (recs.length) {
           const { error } = await db.from("bank_tx").upsert(recs, { onConflict: "id", ignoreDuplicates: true });
@@ -103,11 +106,13 @@ async function synchro(psu: Psu, cron: boolean) {
         try {
           const b = await eb(`/accounts/${cpt.uid}/balances`, {}, psu);
           const liste = b.balances || [];
-          const s = liste.find((x: any) => ["CLBD", "ITAV", "XPCD", "ITBD", "CLAV"].includes(x.balance_type)) || liste[0];
-          if (s) soldes[cpt.uid] = { nom: cpt.nom, montant: parseFloat(s.balance_amount.amount), date: s.reference_date || null };
+          const val = (types: string[]) => { const x = liste.find((b: any) => types.includes(b.balance_type)); return x ? parseFloat(x.balance_amount.amount) : null; };
+          const actuel = val(["CLBD", "ITBD", "ITAV", "CLAV"]) ?? (liste[0] ? parseFloat(liste[0].balance_amount.amount) : null);
+          const aVenir = val(["XPCD", "FWAV"]);
+          if (actuel !== null) soldes[cpt.uid] = { nom: cpt.nom, montant: actuel, aVenir, types: liste.map((b: any) => b.balance_type) };
         } catch (_) { /* solde facultatif */ }
       }
-      await db.from("bank_state").update({ last_sync: new Date().toISOString(), balances: soldes }).eq("id", 1);
+      await db.from("bank_state").update({ last_sync: new Date().toISOString(), balances: soldes, pending: attente }).eq("id", 1);
     } catch (e) {
       erreur = String((e as Error).message || e);
     }
@@ -117,7 +122,7 @@ async function synchro(psu: Psu, cron: boolean) {
   const depuis = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 2, 1)).toISOString().slice(0, 10);
   const { data: tx, error } = await db.from("bank_tx").select("id,booking_date,amount,sens,label").gte("booking_date", depuis).order("booking_date");
   if (error) throw error;
-  return { connecte: true, valid_until: fin.valid_until, last_sync: fin.last_sync, soldes: fin.balances || {}, comptes: fin.accounts || [], transactions: tx || [], erreur };
+  return { connecte: true, valid_until: fin.valid_until, last_sync: fin.last_sync, soldes: fin.balances || {}, comptes: fin.accounts || [], transactions: tx || [], attente: fin.pending || [], erreur };
 }
 
 Deno.serve(async (req) => {
