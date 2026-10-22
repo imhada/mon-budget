@@ -18,7 +18,7 @@
     /* DA : fond lavande, accent indigo, cartes blanches très arrondies, pastilles, montants positifs en vert */
     --navy:#1A2138; --bg:#EEF0FA; --card:#FFFFFF; --cyan:#5B5CEB; --cyan-soft:#ECEBFD; --cyan-mid:#B9B8F8;
     --grey:#5E6B8A; --rail:#ECEEF6; --up:#2E9E6A; --up-soft:#E5F5EC; --down:#D14343; --down-soft:#FBE8E8;
-    --c1:#4C7DF0; --c2:#F2A33A; --c3:#2DB3A3; --hover:#E7E9F3;
+    --c1:#3B82F6; --c2:#F59E0B; --c3:#14B8A6; --hover:#E7E9F3;
     --shadow:0 1px 2px rgba(60,64,140,.04),0 10px 30px rgba(60,64,140,.07);
     --shadow-lg:0 4px 12px rgba(60,64,140,.10),0 22px 48px rgba(60,64,140,.18);
     --font:"Plus Jakarta Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -292,12 +292,53 @@
   @media (min-width:600px){.projcard .actions{grid-template-columns:1.4fr 1fr 1fr}.projcard .actions .btn:first-child{grid-column:auto}}
   @media (max-width:560px){.chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-right:16px}.chips::-webkit-scrollbar{display:none}.pchip{flex:none}}
   @media (min-width:1100px) and (min-height:620px){
-    body.fit .curve svg{max-height:120px}
+    body.fit .curve svg{max-height:96px}
     body.fit .envrow{padding:8px 12px;gap:5px}
     body.fit .row.op.mini{padding:4px 0}
     body.fit .tiles{gap:8px}
   }
   .sechead{align-items:center}
+  /* ---- Couleurs : fond dégradé, cartes vedettes, icônes pleines ---- */
+  body{background:
+    radial-gradient(1100px 600px at 0% -10%,#DCE3FF 0,transparent 60%),
+    radial-gradient(900px 520px at 100% 0%,#FBE3F1 0,transparent 55%),
+    radial-gradient(1000px 700px at 50% 110%,#DDEBFF 0,transparent 60%),
+    #F3F4FB fixed}
+  .card,.kpi,.list{box-shadow:0 1px 2px rgba(60,64,140,.04),0 12px 32px rgba(76,70,180,.08);border:1px solid rgba(255,255,255,.7)}
+  .kpi .ic{background:linear-gradient(135deg,var(--k),color-mix(in srgb,var(--k) 55%,#fff));color:#fff;box-shadow:0 6px 14px color-mix(in srgb,var(--k) 35%,transparent)}
+  .kpis>:nth-child(1) .ic{--k:#6366F1} .kpis>:nth-child(2) .ic{--k:#22C55E} .kpis>:nth-child(3) .ic{--k:#3B82F6} .kpis>:nth-child(4) .ic{--k:#F59E0B}
+  .bar>span{background:linear-gradient(90deg,var(--bc,#6366F1),color-mix(in srgb,var(--bc,#8B5CF6) 55%,#fff))}
+  .btn,.fab,.seg button[aria-pressed="true"]{background:linear-gradient(135deg,#6366F1,#8B5CF6)}
+  .brand{background:linear-gradient(135deg,#6366F1,#EC4899)}
+  .bulle{background:color-mix(in srgb,var(--b) 15%,#fff)}
+
+  /* Carte « Reste à vivre » en dégradé */
+  .herocard{background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 55%,#C026D3 100%);color:#fff;border:0;position:relative;overflow:hidden;
+    --c1:#FFFFFF; --c2:#FCD34D; --c3:#5EEAD4; box-shadow:0 18px 40px rgba(109,40,217,.28)}
+  .herocard::before{content:"";position:absolute;width:340px;height:340px;right:-90px;top:-150px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,255,255,.22),transparent)}
+  .herocard::after{content:"";position:absolute;width:260px;height:260px;left:-80px;bottom:-140px;border-radius:50%;background:radial-gradient(closest-side,rgba(236,72,153,.35),transparent)}
+  .herocard .hero{position:relative;z-index:1}
+  .herocard .label,.herocard .grey,.herocard .legend{color:rgba(255,255,255,.78)}
+  .herocard .legend b,.herocard .ring .c b{color:#fff}
+  .herocard .ring .c .label{color:rgba(255,255,255,.75)}
+  .herocard .ring svg circle:first-child{stroke:rgba(255,255,255,.18)}
+  .herocard .big,.herocard .big.neg{color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.12)}
+  .herocard .pill.ok{background:rgba(255,255,255,.2);color:#fff}
+  .herocard .pill.bad{background:#FFE4E6;color:#BE123C}
+  .herocard .pill.info{background:rgba(255,255,255,.2);color:#fff}
+  .herocard .legend i{box-shadow:0 0 0 2px rgba(255,255,255,.25)}
+
+  /* Carte bancaire façon carte bleue */
+  .bankcard{background:linear-gradient(135deg,#1E1B4B 0%,#3730A3 50%,#6D28D9 100%);color:#fff;border:0;position:relative;overflow:hidden;box-shadow:0 18px 40px rgba(49,46,129,.30)}
+  .bankcard::after{content:"";position:absolute;inset:auto -60px -120px auto;width:280px;height:280px;border-radius:50%;background:radial-gradient(closest-side,rgba(236,72,153,.35),transparent)}
+  .bankcard>*{position:relative;z-index:1}
+  .bankcard .label,.bankcard .grey{color:rgba(255,255,255,.72)}
+  .bankcard .grey b{color:#fff!important}
+  .bankcard .solde-v{color:#fff!important}
+  .bankcard .chip{background:rgba(255,255,255,.16);color:#fff}
+  .bankcard .chip:hover{background:rgba(255,255,255,.28)}
+  .bankcard .note{color:#FECDD3!important}
+  .puce{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,#FCD34D,#F59E0B);color:#78350F}
   /* Barre de navigation : flottante et arrondie sur téléphone, latérale blanche sur ordinateur */
   .nav{box-shadow:var(--shadow-lg)}
   .navbtn{color:var(--navy);font-size:.72rem;font-weight:500}
@@ -521,7 +562,7 @@ function vBanque(){
   const soldes=Object.values(b.soldes||{});
   const jours=b.valid_until?Math.ceil((new Date(b.valid_until)-Date.now())/864e5):null;
   const aClasser=S.depenses.filter(d=>d.source==="banque"&&!d.ignore&&d.sens==="out"&&!d.env).length;
-  return `<div class="card"><div class="cardhead"><span style="display:flex;align-items:center;gap:10px">${bulle("bank","#5B5CEB",34)}<h2>Compte bancaire</h2></span><button class="chip" data-act="syncBanque">${banqueOcc?"Synchro…":"Actualiser"}</button></div>
+  return `<div class="card bankcard"><div class="cardhead"><span style="display:flex;align-items:center;gap:10px"><span class="puce">${svg("bank",18)}</span><h2>Compte bancaire</h2></span><button class="chip" data-act="syncBanque">${banqueOcc?"Synchro…":"Actualiser"}</button></div>
     ${soldes.map(x=>{const att=enAttente().filter(d=>!d.ignore||d.ignore!=="x").reduce((a,d)=>a+(d.sens==="in"?d.montant:-d.montant),0);
       const av=x.aVenir!=null?x.aVenir:Math.round((x.montant+att)*100)/100;
       return `<div class="solde"><span class="label">${esc(x.nom)}</span><span class="solde-v" style="${x.montant<0?"color:var(--down)":""}">${eur(x.montant)}</span>${Math.abs(av-x.montant)>0.004?`<span class="grey small">À venir : <b style="${av<0?"color:var(--down)":"color:var(--navy)"}">${eur(av)}</b></span>`:""}</div>`}).join("")||`<div class="empty">Solde indisponible pour l'instant.</div>`}
@@ -587,7 +628,7 @@ function accountSheet(){
 }
 
 /* ---------- Présentation : couleurs, icônes, libellés propres ---------- */
-const PAL=["#4C7DF0","#F2A33A","#2DB3A3","#E2557A","#8B6CF0","#3CB371","#F06C4C","#5AA9E6"];
+const PAL=["#3B82F6","#F59E0B","#14B8A6","#EC4899","#8B5CF6","#22C55E","#F97316","#06B6D4"];
 const SVG={
   cart:'<circle cx="9" cy="20" r="1.3"/><circle cx="18" cy="20" r="1.3"/><path d="M2.5 3.5h3l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h8.3a1.5 1.5 0 0 0 1.5-1.1L21 8H6.6"/>',
   food:'<path d="M7 3v8M4.5 3v5a2.5 2.5 0 0 0 5 0V3M7 11v10M17 3c-2 1.5-3 4-3 7h3v11"/>',
@@ -612,7 +653,7 @@ function envInfo(id){
   const icon=/course|aliment|super/.test(n)?"cart":/repas|resto|manger|food/.test(n)?"food":/sortie|loisir|bar/.test(n)?"ticket":/shop|vetement|achat|habit/.test(n)?"bag":/imprevu|urgence/.test(n)?"alert":"tag";
   return {nom:e.nom,couleur:PAL[i%PAL.length],icon};
 }
-const GRP_IC={logement:["home","#4C7DF0"],abonnements:["repeat","#8B6CF0"],transport:["bike","#2DB3A3"],autre:["tag","#F2A33A"]};
+const GRP_IC={logement:["home","#3B82F6"],abonnements:["repeat","#8B5CF6"],transport:["bike","#14B8A6"],autre:["tag","#F59E0B"]};
 // Libellé bancaire lisible : « PAIEMENT PAR CARTE X9352 GHYM LE HAVRE 21/10 » devient « Ghym » et « Carte · Le Havre »
 function propre(lib){
   const brut=String(lib||""), N=brut.toUpperCase();
@@ -720,11 +761,11 @@ function curve(c){
   const ideal=c.dispo>0?`<line x1="${X(1)}" y1="${Y(0)}" x2="${X(c.dim)}" y2="${Y(c.dispo)}" stroke="var(--grey)" stroke-opacity=".45" stroke-width="1.5" stroke-dasharray="4 5"/><text x="${X(c.dim)+8}" y="${Y(c.dispo)+4}" font-size="11" fill="var(--grey)">${eur(c.dispo)}</text>`:"";
   const ticks=[1,Math.round(c.dim/2),c.dim].map(d=>`<text x="${X(d)}" y="${H-6}" font-size="11" fill="var(--grey)" text-anchor="${d===1?"start":d===c.dim?"end":"middle"}">${d} ${new Date(cur.y,cur.m,1).toLocaleDateString("fr-FR",{month:"short"})}</text>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Dépenses cumulées sur le mois">
-    <defs><linearGradient id="halo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5B5CEB" stop-opacity=".20"/><stop offset="1" stop-color="#5B5CEB" stop-opacity="0"/></linearGradient></defs>
+    <defs><linearGradient id="trait" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6366F1"/><stop offset="1" stop-color="#EC4899"/></linearGradient><linearGradient id="halo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8B5CF6" stop-opacity=".22"/><stop offset="1" stop-color="#5B5CEB" stop-opacity="0"/></linearGradient></defs>
     ${ideal}
     ${area?`<path d="${area}" fill="url(#halo)"/>`:""}
-    ${path?`<path d="${path}" fill="none" stroke="var(--cyan)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`:""}
-    ${end?`<circle cx="${end[0]}" cy="${end[1]}" r="5" fill="var(--card)" stroke="var(--cyan)" stroke-width="2.5"/><text x="${Math.min(end[0]+10,W-P.r+8)}" y="${end[1]-10}" font-size="12" font-weight="700" fill="var(--navy)">${eur(acc)}</text>`:""}
+    ${path?`<path d="${path}" fill="none" stroke="url(#trait)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`:""}
+    ${end?`<circle cx="${end[0]}" cy="${end[1]}" r="5.5" fill="var(--card)" stroke="#EC4899" stroke-width="3"/><text x="${Math.min(end[0]+10,W-P.r+8)}" y="${end[1]-10}" font-size="12" font-weight="700" fill="var(--navy)">${eur(acc)}</text>`:""}
     ${ticks}
   </svg>`;
 }
@@ -771,7 +812,7 @@ function vMois(){
   </div>
   <div class="dash">
   <div class="col">
-    <div class="card">
+    <div class="card herocard">
       <div class="hero">
         <div class="ring">${ring([[c.fixe,"var(--c1)"],[c.projM,"var(--c2)"],[c.dep,"var(--c3)"]],tot)}
           <div class="c"><span class="label">Utilisé</span><b>${Math.min(999,Math.round((c.fixe+c.projM+c.dep)/Math.max(c.rev+c.extra,1)*100))} %</b></div></div>
