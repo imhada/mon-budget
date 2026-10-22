@@ -68,11 +68,13 @@ async function synchro(psu: Psu, cron: boolean) {
   if (!st?.session_id) return { connecte: false };
   if (st.valid_until && new Date(st.valid_until) < new Date()) return { connecte: false, expire: true };
 
-  const age = st.last_sync ? Date.now() - new Date(st.last_sync).getTime() : Infinity;
+  const { count: nbV2 } = await db.from("bank_tx").select("id", { count: "exact", head: true }).like("id", "v2:%");
+  const complet = !nbV2; // première synchro au nouveau format : on relit tout le mois
+  const age = st.last_sync && !complet ? Date.now() - new Date(st.last_sync).getTime() : Infinity;
   const aJour = age < (cron ? 5 * 3600e3 : 10 * 60e3); // limite les accès (la banque plafonne les accès en arrière-plan)
   let erreur: string | null = null;
   if (!aJour) {
-    const debut = st.last_sync
+    const debut = st.last_sync && !complet
       ? new Date(new Date(st.last_sync).getTime() - 7 * 86400e3)
       : new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
     const soldes: Record<string, unknown> = {};
@@ -89,13 +91,16 @@ async function synchro(psu: Psu, cron: boolean) {
           suite = r.continuation_key || null;
         } while (suite);
         const recs = [];
+        const rangs: Record<string, number> = {};
         for (const t of lignes) {
           const brut = parseFloat(t.transaction_amount?.amount ?? "0");
           const sens = t.credit_debit_indicator ? (t.credit_debit_indicator === "CRDT" ? "in" : "out") : brut < 0 ? "out" : "in";
           const libelle = ((t.remittance_information || []).join(" ").trim() || t.creditor?.name || t.debtor?.name || "Opération").replace(/\s+/g, " ");
           const date = t.booking_date || t.value_date || t.transaction_date;
-          const base = t.entry_reference || t.transaction_id || `${date}|${brut}|${sens}|${libelle}`;
-          const ligne = { id: `${String(cpt.uid).slice(0, 8)}:${await empreinte(base)}`, account: cpt.uid, booking_date: date, amount: Math.abs(brut), sens, label: libelle.slice(0, 140) };
+          // L'identifiant fourni par la banque change d'une synchro à l'autre : on ne s'en sert pas.
+          const cleOp = `${date}|${Math.abs(brut)}|${sens}|${libelle}|${t.status || "BOOK"}`;
+          const rang = (rangs[cleOp] = (rangs[cleOp] ?? -1) + 1);
+          const ligne = { id: `v2:${await empreinte(`${cpt.uid}|${cleOp}|${rang}`)}`, account: cpt.uid, booking_date: date, amount: Math.abs(brut), sens, label: libelle.slice(0, 140) };
           if (t.status && t.status !== "BOOK") attente.push({ ...ligne, booking_date: date || new Date().toISOString().slice(0, 10) });
           else recs.push(ligne);
         }
@@ -120,7 +125,7 @@ async function synchro(psu: Psu, cron: boolean) {
   if (cron) return { ok: !erreur, erreur };
   const fin = await etat();
   const depuis = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 2, 1)).toISOString().slice(0, 10);
-  const { data: tx, error } = await db.from("bank_tx").select("id,booking_date,amount,sens,label").gte("booking_date", depuis).order("booking_date");
+  const { data: tx, error } = await db.from("bank_tx").select("id,booking_date,amount,sens,label").like("id", "v2:%").gte("booking_date", depuis).order("booking_date");
   if (error) throw error;
   return { connecte: true, valid_until: fin.valid_until, last_sync: fin.last_sync, soldes: fin.balances || {}, comptes: fin.accounts || [], transactions: tx || [], attente: fin.pending || [], erreur };
 }
