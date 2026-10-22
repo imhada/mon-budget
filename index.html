@@ -383,25 +383,50 @@ async function appelBanque(action,extra={}){
   return data;
 }
 const proche=(a,b,tol)=>Math.abs(a-b)<=tol;
+// Reconnaître une charge fixe ou une entrée dans les opérations : par le nom, ou par le montant exact pour les sommes assez grosses
+const nomDans=(nom,lib)=>norm(nom).length>=4&&lib.includes(norm(nom));
+const estCharge=(c,m,lib)=>+c.montant>0&&(nomDans(c.nom,lib)||(+c.montant>=15&&proche(m,+c.montant,0.01)));
+const estRevenu=(r,m,lib)=>+r.montant>0&&(nomDans(r.nom,lib)||(+r.montant>=100&&proche(m,+r.montant,r.montant*0.05)));
 const norm=t=>String(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+// Commerçant d'une opération : sert à retenir où tu l'as classée
+function marchand(lib){
+  let t=norm(lib).replace(/paiement par carte|prlv sepa|prelevement|vir(ement)?( sepa)?( inst)?( recu| emis)?|x\d{3,}|\b\d{2}\/\d{2}\b|[*]/g," ").replace(/\s+/g," ").trim();
+  const m=t.split(" ").filter(Boolean);
+  return (m[0]&&m[0].length<3?m.slice(0,2):m.slice(0,1)).join(" ");
+}
+const MOTS={
+  "courses":/carrefour|leclerc|lidl|auchan|intermarche|monoprix|franprix|casino|super u|hyper u|aldi|picard|biocoop|netto|grand frais|spar|proxi|coccinelle|cora|match|epicerie|primeur/,
+  "repas dehors":/restau|resto|mc ?do|mcdonald|burger|kfc|quick|tacos|kebab|pizza|sushi|boulang|paul |snack|cafe|coffee|starbucks|uber ?eats|deliveroo|just ?eat|crous|brioche|bangla|subway|o'tacos|five guys|domino/,
+  "sorties":/bar |pub |cinema|pathe|ugc|cgr|bowling|concert|ticketmaster|fnac spectacle|discotheque|club/,
+  "shopping":/amazon|zara|h&m|hm |decathlon|fnac|action|primark|uniqlo|sephora|kiabi|jules|celio|nike|adidas|zalando|shein|vinted|darty|boulanger/
+};
+function classer(d){
+  const r=(S.regles||{})[marchand(d.note)]; if(r&&S.enveloppes.some(e=>e.id===r)){d.env=r;return}
+  const lib=" "+norm(d.note)+" ";
+  for(const e of S.enveloppes){const re=MOTS[norm(e.nom)];if(re&&re.test(lib)){d.env=e.id;return}}
+}
 // Range les opérations bancaires dans HAZEL sans jamais compter deux fois la même somme
 function importerBanque(liste){
+  if(S.bankVersion!==2){ // nettoyage : la 1re version importait chaque opération en double
+    S.depenses=S.depenses.filter(d=>d.source!=="banque");S.depenses.forEach(d=>delete d.lienBanque);S.bankVus=[];S.bankVersion=2;
+  }
   S.bankVus??=[]; const vus=new Set(S.bankVus); let n=0;
   for(const t of liste){
     const id="b:"+t.id; if(vus.has(id))continue; vus.add(id);
     const m=+t.amount, d={id,montant:m,sens:t.sens,env:"",note:t.label,date:t.booking_date,source:"banque"}, lib=norm(t.label);
     if(t.sens==="out"){
-      const ch=S.charges.find(c=>+c.montant>0&&(proche(m,+c.montant,1)||(norm(c.nom).length>=4&&lib.includes(norm(c.nom)))));
-      if(ch){d.ignore="fixe";d.raison="Déjà compté dans Fixe : "+ch.nom}
+      const ch=S.charges.find(c=>estCharge(c,m,lib));
+      if(ch){d.ignore="fixe";d.fixeId=ch.id;d.raison="Déjà compté dans Fixe : "+ch.nom}
     }else{
-      const rv=S.revenus.find(r=>+r.montant>0&&(proche(m,+r.montant,Math.max(5,r.montant*0.05))||(norm(r.nom).length>=4&&lib.includes(norm(r.nom)))));
-      if(rv){d.ignore="fixe";d.raison="Déjà compté dans les entrées : "+rv.nom}
+      const rv=S.revenus.find(r=>estRevenu(r,m,lib));
+      if(rv){d.ignore="fixe";d.fixeId=rv.id;d.raison="Déjà compté dans les entrées : "+rv.nom}
     }
     if(!d.ignore){ // déjà saisi à la main ? même sens, même montant, à 3 jours près
       const dt=new Date(d.date).getTime();
       const man=S.depenses.find(x=>!x.source&&!x.lienBanque&&x.sens===d.sens&&proche(+x.montant,m,0.01)&&Math.abs(new Date(x.date).getTime()-dt)<=3*864e5);
       if(man){d.ignore="doublon";d.raison="Déjà saisie à la main le "+new Date(man.date+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});man.lienBanque=id}
     }
+    if(!d.ignore&&d.sens==="out")classer(d);
     S.depenses.push(d);n++;
   }
   S.bankVus=[...vus].slice(-3000);
@@ -413,8 +438,8 @@ function enAttente(){
   if(!banque?.connecte||!banque.attente?.length)return [];
   return banque.attente.map(t=>{
     const d={id:"p:"+t.id,montant:+t.amount,sens:t.sens,env:"",note:t.label,date:t.booking_date,source:"attente"},m=+t.amount,lib=norm(t.label);
-    const ch=t.sens==="out"?S.charges.find(c=>+c.montant>0&&(proche(m,+c.montant,1)||(norm(c.nom).length>=4&&lib.includes(norm(c.nom))))):null;
-    if(ch){d.ignore="fixe";d.raison="Déjà compté dans Fixe : "+ch.nom}
+    const ch=t.sens==="out"?S.charges.find(c=>estCharge(c,m,lib)):null;
+    if(ch){d.ignore="fixe";d.fixeId=ch.id;d.raison="Déjà compté dans Fixe : "+ch.nom}
     else{const dt=new Date(d.date).getTime();if(S.depenses.some(x=>!x.source&&x.sens===d.sens&&proche(+x.montant,m,0.01)&&Math.abs(new Date(x.date).getTime()-dt)<=3*864e5)){d.ignore="doublon";d.raison="Déjà saisie à la main"}}
     return d;
   });
@@ -422,6 +447,7 @@ function enAttente(){
 async function syncBanque(action="sync",extra={}){
   if(!sb||!code||banqueOcc)return;
   banqueOcc=true;
+  if(S.bankVersion!==2&&S.depenses.some(d=>d.source==="banque")){S.depenses=S.depenses.filter(d=>d.source!=="banque");S.depenses.forEach(d=>delete d.lienBanque);S.bankVus=[];S.bankVersion=2;render()}
   try{
     banque=await appelBanque(action,extra);
     if(banque.connecte&&banque.transactions?.length&&importerBanque(banque.transactions))save();
@@ -522,12 +548,23 @@ function calc(y=cur.y,m=cur.m,upto=null){
   if(upto)txs=txs.filter(d=>+d.date.slice(8,10)<=upto);
   const dep=sum(txs.filter(d=>d.sens!=="in"),d=>d.montant);
   const extra=sum(txs.filter(d=>d.sens==="in"),d=>d.montant);
-  const dispo=rev+extra-fixe-projM, reste=dispo-dep;
+  const dispo=rev+extra-fixe-projM; let reste=dispo-dep;
   const dim=new Date(y,m+1,0).getDate();
   const isCur=y===now.getFullYear()&&m===now.getMonth();
   const isPast=new Date(y,m+1,1)<=new Date(now.getFullYear(),now.getMonth(),1);
   const jours=isCur?dim-now.getDate()+1:(isPast?0:dim);
-  return {k,rev,fixe,projM,dep,extra,dispo,reste,dim,jours,isCur,isPast,txs,tous,envBud:sum(S.enveloppes,e=>e.budget)};
+  let ancre=null;
+  if(isCur&&banque?.connecte&&Object.keys(banque.soldes||{}).length){
+    const att=(banque.attente||[]).reduce((a,t)=>a+(t.sens==="in"?+t.amount:-t.amount),0);
+    const solde=Object.values(banque.soldes).reduce((a,x)=>a+(x.aVenir!=null?+x.aVenir:+x.montant+att),0);
+    const vus=new Set(tous.filter(d=>d.fixeId).map(d=>d.fixeId));
+    const chargesAVenir=sum(S.charges.filter(c=>+c.montant>0&&!vus.has(c.id)),c=>c.montant);
+    const entreesAttendues=sum(S.revenus.filter(r=>+r.montant>0&&!vus.has(r.id)),r=>r.montant);
+    const reserve=sum(actifs(),p=>sum(p.versements||[],v=>v.montant));
+    ancre={solde,chargesAVenir,entreesAttendues,reserve};
+    reste=Math.round((solde-chargesAVenir+entreesAttendues-reserve)*100)/100;
+  }
+  return {k,rev,fixe,projM,dep,extra,dispo,reste,ancre,dim,jours,isCur,isPast,txs,tous,envBud:sum(S.enveloppes,e=>e.budget)};
 }
 
 /* ---------- rendu ---------- */
@@ -630,6 +667,7 @@ function vMois(){
           <span class="label">Reste à vivre ${c.isCur?"jusqu'à la fin du mois":c.jours?"prévu":"en fin de mois"}</span>
           <div class="big ${c.reste<0?"neg":""}">${eur(c.reste)}</div>
           ${pj!==null?`<div>soit <b>${eur(Math.max(0,pj))}</b> par jour pendant ${c.jours} jour${c.jours>1?"s":""}</div>`:""}
+          ${c.ancre?`<div class="grey small">Calculé sur ton vrai compte : solde à venir ${eur(c.ancre.solde)}${c.ancre.chargesAVenir?` − charges pas encore prélevées ${eur(c.ancre.chargesAVenir)}`:""}${c.ancre.entreesAttendues?` + entrées attendues ${eur(c.ancre.entreesAttendues)}`:""}${c.ancre.reserve?` − mis de côté ${eur(c.ancre.reserve)}`:""}</div>`:""}
           ${status}
           <div class="legend"><span><i style="background:var(--c1)"></i>Fixe <b>${eur(c.fixe)}</b></span><span><i style="background:var(--c2)"></i>Projets <b>${eur(c.projM)}</b></span><span><i style="background:var(--c3)"></i>Dépensé <b>${eur(c.dep)}</b></span><span><i style="background:var(--rail)"></i>Libre <b>${eur(Math.max(0,c.reste))}</b></span></div>
         </div>
@@ -777,7 +815,8 @@ function act(a,id){
       {name:"date",label:"Date",type:"date",value:d.date||today()},
       ...(d.source==="banque"?[{name:"compter",label:"Compter dans le budget",type:"seg",options:{oui:"Oui",non:"Non (déjà dans Fixe, virement entre mes comptes…)"},value:d.ignore?"non":"oui"}]:[])],
       v=>{if(!(v.montant>0))return "Entre un montant.";if(!v.date)return "Choisis une date.";
-        if(d.source==="banque"){if(v.compter==="non"){d.ignore=d.ignore||"manuel";d.raison=d.raison||"Non compté"}else{delete d.ignore;delete d.raison}delete v.compter}
+        if(d.source==="banque"){if(v.compter==="non"){d.ignore=d.ignore||"manuel";d.raison=d.raison||"Non compté"}else{delete d.ignore;delete d.raison}delete v.compter;
+          if(v.env&&v.env!==d.env){const m=marchand(d.note);if(m){(S.regles??={})[m]=v.env;S.depenses.forEach(x=>{if(x.source==="banque"&&!x.env&&x!==d&&marchand(x.note)===m)x.env=v.env})}}}
         Object.assign(d,v);if(!d.id){d.id=uid();S.depenses.push(d)}},d.id&&rm("depenses"))}
   if(a==="addProj"||a==="editProj"){const p=a==="editProj"?find("projets"):{};
     sheet(p.id?"Modifier le projet":"Nouveau projet",[
