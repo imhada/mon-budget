@@ -6,25 +6,29 @@
   <title>H.A.Z.E.L</title>
   <meta name="apple-mobile-web-app-title" content="H.A.Z.E.L">
   <meta name="application-name" content="H.A.Z.E.L">
+  <meta name="theme-color" content="#E7E9FA">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
   
   <!-- Ingestion de la bibliothèque Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 
   <style>
   :root{
-    --navy:#0B1F3A; --bg:#F7F8FA; --card:#FFFFFF; --cyan:#00A8C6; --cyan-soft:#E3F6FA; --cyan-mid:#9ADCE9;
-    --grey:#6B7280; --rail:#EEF1F5; --up:#16A34A; --up-soft:#E7F6EC; --down:#DC2626; --down-soft:#FCE9E9;
-    --shadow:0 1px 2px rgba(11,31,58,.04),0 8px 24px rgba(11,31,58,.07);
-    --shadow-lg:0 2px 6px rgba(11,31,58,.06),0 18px 40px rgba(11,31,58,.14);
-    --font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-    --r:10px; --navw:76px;
+    /* DA : fond lavande, accent indigo, cartes blanches très arrondies, pastilles, montants positifs en vert */
+    --navy:#1A2138; --bg:#EEF0FA; --card:#FFFFFF; --cyan:#5B5CEB; --cyan-soft:#ECEBFD; --cyan-mid:#B9B8F8;
+    --grey:#5E6B8A; --rail:#ECEEF6; --up:#2E9E6A; --up-soft:#E5F5EC; --down:#D14343; --down-soft:#FBE8E8;
+    --c1:#4C7DF0; --c2:#F2A33A; --c3:#2DB3A3; --hover:#E7E9F3;
+    --shadow:0 1px 2px rgba(60,64,140,.04),0 10px 30px rgba(60,64,140,.07);
+    --shadow-lg:0 4px 12px rgba(60,64,140,.10),0 22px 48px rgba(60,64,140,.18);
+    --font:"Plus Jakarta Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    --r:24px; --navw:84px;
     color-scheme:light;
     box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
   }
   *{box-sizing:border-box}
   html,body{background:var(--bg);color:var(--navy);margin:0;padding:0}
+  body{background:linear-gradient(180deg,#E7E9FA 0,#F3F4FB 420px,var(--bg) 100%) fixed}
   body{font-family:var(--font);font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums;
     padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 104px}
   @media (min-width:900px){body{padding-left:calc(var(--navw) + max(32px,env(safe-area-inset-left,0px)));padding-right:max(32px,env(safe-area-inset-right,0px));padding-block:28px 48px}}
@@ -196,12 +200,80 @@
   .login .row2 input{flex:1;min-width:0}
   .linkbtn{color:var(--grey);text-decoration:underline;font-size:.85rem;align-self:flex-start}
   body.nologin .fab{display:none}
+
+  /* ---- Composants façon appli bancaire : pastilles, boutons ronds, barre flottante ---- */
+  h2{font-size:1.08rem;font-weight:700}
+  .month b{font-weight:700}
+  .iconbtn{border-radius:50%;width:40px;height:40px;box-shadow:var(--shadow)}
+  .iconbtn:hover,.sync:hover{background:var(--hover)}
+  .sync{padding:8px 14px;font-weight:500}
+  .card,.kpi,.list{border-radius:var(--r)}
+  .card{padding:22px}
+  .chip{background:var(--cyan-soft);color:var(--cyan);border-radius:999px;padding:7px 14px}
+  .chip:hover{background:var(--cyan);color:#fff}
+  .btn{background:var(--cyan);color:#fff;border-radius:999px;padding:12px 22px;font-weight:600}
+  .btn:hover{filter:brightness(1.07)}
+  .btn.plain{background:var(--card);color:var(--navy);box-shadow:inset 0 0 0 1px var(--rail)}
+  .btn.plain:hover{background:var(--hover)}
+  .btn.danger{background:var(--down-soft);color:var(--down)}
+  .add{background:var(--card);color:var(--navy);border-radius:999px;padding:12px 18px;text-align:center;font-weight:600;box-shadow:inset 0 0 0 1px var(--rail)}
+  .add:hover{background:var(--hover)}
+  .kpi .ic{width:44px;height:44px;border-radius:50%;background:var(--cyan-soft);color:var(--cyan)}
+  .kpi .v{font-weight:700}
+  .pill.info{background:var(--cyan-soft);color:var(--cyan)}
+  .big{font-weight:700}
+  .bar{height:8px;border-radius:999px}
+  .bar>span{border-radius:999px}
+  .envrow,.tile{background:#F6F7FC;border-radius:18px}
+  .envrow:hover,.tile:hover{background:var(--cyan-soft)}
+  .row:hover{background:#F6F7FC}
+  .tag{background:var(--cyan-soft);color:var(--cyan)}
+  .sechead .t{font-weight:700}
+  .seg{background:#F1F2F9;border-radius:999px;padding:4px;gap:4px}
+  .seg button{background:none;border-radius:999px;padding:8px 14px;color:var(--grey);font-weight:500}
+  .seg button[aria-pressed="true"]{background:var(--cyan);color:#fff;font-weight:600}
+  .field input,.field select{background:#F3F4FA;border-radius:14px;padding:13px 15px}
+  .sheet{border-radius:28px 28px 0 0}
+  @media (min-width:640px){.sheet{border-radius:28px}}
+  .sheet-bg{background:rgba(26,33,56,.35)}
+  .fab{background:var(--cyan);color:#fff;border-radius:999px;padding:15px 22px;box-shadow:0 10px 28px rgba(91,92,235,.38)}
+  .envrow .line b{font-size:.9rem;white-space:nowrap}
+  @media (max-width:560px){
+    .kpi{grid-template-columns:minmax(0,1fr);row-gap:4px;padding:14px}
+    .kpi .ic{grid-row:auto;width:36px;height:36px;margin-bottom:4px}
+    .kpi .ic svg{width:18px;height:18px}
+  }
+  @media (min-width:1100px) and (min-height:620px){
+    body.fit .kv{padding:6px 0}
+    body.fit .card{padding:16px 20px}
+    body.fit .proj{gap:6px}
+  }
+  /* Barre de navigation : flottante et arrondie sur téléphone, latérale blanche sur ordinateur */
+  .nav{box-shadow:var(--shadow-lg)}
+  .navbtn{color:var(--navy);font-size:.72rem;font-weight:500}
+  .navbtn .sq{border-radius:999px}
+  .navbtn[aria-selected="true"]{color:var(--cyan);font-weight:600}
+  .navbtn[aria-selected="true"] .sq,.navbtn[aria-selected="true"]:hover .sq{background:var(--hover);color:var(--cyan)}
+  .navbtn:hover .sq{background:#F3F4FA}
+  @media (max-width:899px){
+    .nav{left:max(14px,env(safe-area-inset-left,0px));right:max(14px,env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));border-radius:999px;padding:8px 10px}
+    .navbtn{flex:1;border-radius:999px;padding:6px 0}
+    .navbtn[aria-selected="true"]{background:var(--hover)}
+    .navbtn[aria-selected="true"] .sq{background:none}
+    .navbtn .sq{width:auto;height:26px}
+    .fab{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+  }
+  @media (min-width:900px){
+    .nav{border-radius:0 28px 28px 0}
+    .navbtn .sq{width:52px;height:40px}
+    .brand{background:var(--cyan);border-radius:50%;width:44px;height:44px}
+  }
   </style>
 </head>
 <body>
 
 <nav class="nav" aria-label="Sections">
-  <div class="brand" aria-hidden="true">G</div>
+  <div class="brand" aria-hidden="true">H</div>
   <div class="items" role="tablist">
     <button class="navbtn tab" role="tab" data-tab="mois" aria-selected="true"><span class="sq"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="2"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="2"/><rect x="3" y="15" width="7.5" height="6" rx="2"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="2"/></svg></span>Accueil</button>
     <button class="navbtn tab" role="tab" data-tab="depenses"><span class="sq"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>Dépenses</button>
@@ -501,7 +573,7 @@ function curve(c){
   const ideal=c.dispo>0?`<line x1="${X(1)}" y1="${Y(0)}" x2="${X(c.dim)}" y2="${Y(c.dispo)}" stroke="var(--grey)" stroke-opacity=".45" stroke-width="1.5" stroke-dasharray="4 5"/><text x="${X(c.dim)+8}" y="${Y(c.dispo)+4}" font-size="11" fill="var(--grey)">${eur(c.dispo)}</text>`:"";
   const ticks=[1,Math.round(c.dim/2),c.dim].map(d=>`<text x="${X(d)}" y="${H-6}" font-size="11" fill="var(--grey)" text-anchor="${d===1?"start":d===c.dim?"end":"middle"}">${d} ${new Date(cur.y,cur.m,1).toLocaleDateString("fr-FR",{month:"short"})}</text>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Dépenses cumulées sur le mois">
-    <defs><linearGradient id="halo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00A8C6" stop-opacity=".22"/><stop offset="1" stop-color="#00A8C6" stop-opacity="0"/></linearGradient></defs>
+    <defs><linearGradient id="halo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5B5CEB" stop-opacity=".20"/><stop offset="1" stop-color="#5B5CEB" stop-opacity="0"/></linearGradient></defs>
     ${ideal}
     ${area?`<path d="${area}" fill="url(#halo)"/>`:""}
     ${path?`<path d="${path}" fill="none" stroke="var(--cyan)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`:""}
@@ -552,14 +624,14 @@ function vMois(){
   <div class="col">
     <div class="card">
       <div class="hero">
-        <div class="ring">${ring([[c.fixe,"var(--navy)"],[c.projM,"var(--cyan-mid)"],[c.dep,"var(--cyan)"]],tot)}
+        <div class="ring">${ring([[c.fixe,"var(--c1)"],[c.projM,"var(--c2)"],[c.dep,"var(--c3)"]],tot)}
           <div class="c"><span class="label">Utilisé</span><b>${Math.min(999,Math.round((c.fixe+c.projM+c.dep)/Math.max(c.rev+c.extra,1)*100))} %</b></div></div>
         <div class="hero-r">
           <span class="label">Reste à vivre ${c.isCur?"jusqu'à la fin du mois":c.jours?"prévu":"en fin de mois"}</span>
           <div class="big ${c.reste<0?"neg":""}">${eur(c.reste)}</div>
           ${pj!==null?`<div>soit <b>${eur(Math.max(0,pj))}</b> par jour pendant ${c.jours} jour${c.jours>1?"s":""}</div>`:""}
           ${status}
-          <div class="legend"><span><i style="background:var(--navy)"></i>Fixe <b>${eur(c.fixe)}</b></span><span><i style="background:var(--cyan-mid)"></i>Projets <b>${eur(c.projM)}</b></span><span><i style="background:var(--cyan)"></i>Dépensé <b>${eur(c.dep)}</b></span><span><i style="background:var(--rail)"></i>Libre <b>${eur(Math.max(0,c.reste))}</b></span></div>
+          <div class="legend"><span><i style="background:var(--c1)"></i>Fixe <b>${eur(c.fixe)}</b></span><span><i style="background:var(--c2)"></i>Projets <b>${eur(c.projM)}</b></span><span><i style="background:var(--c3)"></i>Dépensé <b>${eur(c.dep)}</b></span><span><i style="background:var(--rail)"></i>Libre <b>${eur(Math.max(0,c.reste))}</b></span></div>
         </div>
       </div>
     </div>
