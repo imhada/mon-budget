@@ -344,6 +344,7 @@ const MOTS={
   "courses":/carrefour|leclerc|lidl|auchan|intermarche|monoprix|franprix|casino|super u|hyper u|aldi|picard|biocoop|netto|grand frais|spar|proxi|coccinelle|cora|match|epicerie|primeur/,
   "repas dehors":/restau|resto|mc ?do|mcdonald|burger|kfc|quick|tacos|kebab|pizza|sushi|boulang|paul |snack|cafe|coffee|starbucks|uber ?eats|deliveroo|just ?eat|crous|brioche|bangla|subway|o'tacos|five guys|domino/,
   "sorties":/bar |pub |cinema|pathe|ugc|cgr|bowling|concert|ticketmaster|fnac spectacle|discotheque|club/,
+  "transport":/sncf|ter |tgv|ouigo|inoui|trainline|navigo|bus |tram|filbleu|fil bleu|lia |transdev|keolis|blablacar|flixbus|voi |voi$|lime|dott|tier|bolt|uber(?! ?eats)|heetch|taxi|parking|indigo|total ?energies station|esso|essence|carburant|peage|vinci autoroute|sanef|velo|scooter/,
   "shopping":/amazon|zara|h&m|hm |decathlon|fnac|action|primark|uniqlo|sephora|kiabi|jules|celio|nike|adidas|zalando|shein|vinted|darty|boulanger/
 };
 function classer(d){
@@ -506,7 +507,7 @@ const bulle=(icon,couleur,t=40)=>`<span class="bulle" style="--b:${couleur};widt
 function envInfo(id){
   const i=S.enveloppes.findIndex(e=>e.id===id); if(i<0)return null;
   const e=S.enveloppes[i], n=norm(e.nom);
-  const icon=/course|aliment|super/.test(n)?"cart":/repas|resto|manger|food/.test(n)?"food":/sortie|loisir|bar/.test(n)?"ticket":/shop|vetement|achat|habit/.test(n)?"bag":/imprevu|urgence/.test(n)?"alert":"tag";
+  const icon=/transport|trajet|deplacement/.test(n)?"bike":/course|aliment|super/.test(n)?"cart":/repas|resto|manger|food/.test(n)?"food":/sortie|loisir|bar/.test(n)?"ticket":/shop|vetement|achat|habit/.test(n)?"bag":/imprevu|urgence/.test(n)?"alert":"tag";
   return {nom:e.nom,couleur:PAL[i%PAL.length],icon};
 }
 const GRP_IC={logement:["home","#007AFF"],abonnements:["repeat","#AF52DE"],transport:["bike","#34C759"],autre:["tag","#FF9500"]};
