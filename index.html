@@ -335,7 +335,9 @@ const estCharge=(c,m,lib)=>+c.montant>0&&(nomDans(c.nom,lib)||(+c.montant>=15&&p
 // Deux paiements identiques le même mois vont sur deux lignes différentes : on préfère une ligne pas encore utilisée ce mois-ci
 const libre=(id,date)=>!S.depenses.some(x=>x.fixeId===id&&(x.date||"").slice(0,7)===String(date||"").slice(0,7));
 const trouver=(liste,test,date)=>liste.find(x=>test(x)&&libre(x.id,date))||liste.find(test);
-const estRevenu=(r,m,lib)=>+r.montant>0&&(nomDans(r.nom,lib)||(+r.montant>=100&&proche(m,+r.montant,r.montant*0.05)));
+const partOk=(p,m,lib)=>nomDans(p.nom,lib)||(+p.montant>=100&&proche(m,+p.montant,p.montant*0.05));
+const partRecue=(r,i,mois,liste=S.depenses)=>liste.some(x=>x.fixeId===r.id&&x.partIdx===i&&(x.date||"").slice(0,7)===mois);
+const estRevenu=(r,m,lib)=>r.parts?.length?r.parts.some(p=>partOk(p,m,lib)):+r.montant>0&&(nomDans(r.nom,lib)||(+r.montant>=100&&proche(m,+r.montant,r.montant*0.05)));
 const norm=t=>String(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 // Commerçant d'une opération : sert à retenir où tu l'as classée
 function marchand(lib){
@@ -369,7 +371,8 @@ function importerBanque(liste){
       if(ch){d.ignore="fixe";d.fixeId=ch.id;d.raison="Déjà compté dans Fixe : "+ch.nom}
     }else{
       const rv=trouver(S.revenus,r=>estRevenu(r,m,lib),t.booking_date);
-      if(rv){d.ignore="fixe";d.fixeId=rv.id;d.raison="Déjà compté dans les entrées : "+rv.nom}
+      if(rv){d.ignore="fixe";d.fixeId=rv.id;d.raison="Déjà compté dans les entrées : "+rv.nom;
+        if(rv.parts?.length){const mo=String(d.date).slice(0,7);let i=rv.parts.findIndex((p,k)=>partOk(p,m,lib)&&!partRecue(rv,k,mo));if(i<0)i=rv.parts.findIndex(p=>partOk(p,m,lib));d.partIdx=i}}
     }
     if(!d.ignore){ // déjà saisi à la main ? même sens, même montant, à 3 jours près
       const dt=new Date(d.date).getTime();
@@ -570,7 +573,9 @@ function calc(y=cur.y,m=cur.m,upto=null){
     const solde=Object.values(banque.soldes).reduce((a,x)=>a+(x.aVenir!=null?+x.aVenir:+x.montant+att),0);
     const vus=new Set(tous.filter(d=>d.fixeId).map(d=>d.fixeId));
     const chargesAVenir=sum(S.charges.filter(c=>+c.montant>0&&!vus.has(c.id)),c=>c.montant);
-    const entreesAttendues=sum(S.revenus.filter(r=>+r.montant>0&&!vus.has(r.id)),r=>r.montant);
+    const entreesAttendues=sum(S.revenus.filter(r=>+r.montant>0),r=>r.parts?.length
+      ?sum(r.parts.filter((p,i)=>!partRecue(r,i,k,tous)),p=>p.montant)
+      :(vus.has(r.id)?0:+r.montant));
     const reserve=sum(actifs(),p=>sum(p.versements||[],v=>v.montant));
     ancre={solde,chargesAVenir,entreesAttendues,reserve};
     reste=Math.round((solde-chargesAVenir+entreesAttendues-reserve)*100)/100;
@@ -716,7 +721,7 @@ function vDep(){
 
 function vFixe(){
   const rev=sum(S.revenus,r=>r.montant), fixe=sum(S.charges,c=>c.montant);
-  const revRows=S.revenus.map(r=>`<button class="row" data-act="editRev" data-id="${r.id}">${bulle("up","#34C759")}<div class="grow"><span class="name">${esc(r.nom)}</span><span class="grey small">${REV_TYPES[r.type]||"Autre"}</span></div><span class="amt ${+r.montant?"plus":"grey"}">${+r.montant?"+"+eur(+r.montant):"à remplir"}</span></button>`).join("");
+  const revRows=S.revenus.map(r=>`<button class="row" data-act="editRev" data-id="${r.id}">${bulle("up","#34C759")}<div class="grow"><span class="name">${esc(r.nom)}</span><span class="grey small">${r.parts?.length?`${r.parts.length} virements de ${r.parts.map(p=>eur(p.montant)).join(" et ")}`:REV_TYPES[r.type]||"Autre"}</span></div><span class="amt ${+r.montant?"plus":"grey"}">${+r.montant?"+"+eur(+r.montant):"à remplir"}</span></button>`).join("");
   const groups=Object.keys(GROUPES).map(g=>{
     const items=S.charges.filter(c=>(c.groupe||"autre")===g); if(!items.length)return "";
     return `<div class="grouphead"><span>${GROUPES[g]}</span><span>${eur(sum(items,c=>c.montant))}</span></div>`+
@@ -788,7 +793,7 @@ function act(a,id){
       {name:"nom",label:"Nom",value:r.nom,ph:"Salaire alternance"},
       {name:"montant",label:"Montant par mois (€)",type:"number",big:1,value:r.montant},
       {name:"type",label:"Type",type:"seg",options:REV_TYPES,value:r.type||"salaire"}],
-      v=>{if(!v.nom)return "Donne un nom.";Object.assign(r,v);if(!r.id){r.id=uid();S.revenus.push(r)}},r.id&&rm("revenus"))}
+      v=>{if(!v.nom)return "Donne un nom.";Object.assign(r,v);if(r.parts&&Math.abs(sum(r.parts,p=>p.montant)-(+r.montant||0))>0.01)delete r.parts;if(!r.id){r.id=uid();S.revenus.push(r)}},r.id&&rm("revenus"))}
   if(a==="addCh"||a==="editCh"){const c=a==="editCh"?find("charges"):{};
     sheet(c.id?"Modifier la charge":"Nouvelle charge fixe",[
       {name:"nom",label:"Nom",value:c.nom,ph:"Loyer"},
