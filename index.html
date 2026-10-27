@@ -332,6 +332,9 @@ const proche=(a,b,tol)=>Math.abs(a-b)<=tol;
 // Reconnaître une charge fixe ou une entrée dans les opérations : par le nom, ou par le montant exact pour les sommes assez grosses
 const nomDans=(nom,lib)=>norm(nom).length>=4&&lib.includes(norm(nom));
 const estCharge=(c,m,lib)=>+c.montant>0&&(nomDans(c.nom,lib)||(+c.montant>=15&&proche(m,+c.montant,0.01)));
+// Deux paiements identiques le même mois vont sur deux lignes différentes : on préfère une ligne pas encore utilisée ce mois-ci
+const libre=(id,date)=>!S.depenses.some(x=>x.fixeId===id&&(x.date||"").slice(0,7)===String(date||"").slice(0,7));
+const trouver=(liste,test,date)=>liste.find(x=>test(x)&&libre(x.id,date))||liste.find(test);
 const estRevenu=(r,m,lib)=>+r.montant>0&&(nomDans(r.nom,lib)||(+r.montant>=100&&proche(m,+r.montant,r.montant*0.05)));
 const norm=t=>String(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 // Commerçant d'une opération : sert à retenir où tu l'as classée
@@ -362,10 +365,10 @@ function importerBanque(liste){
     const id="b:"+t.id; if(vus.has(id))continue; vus.add(id);
     const m=+t.amount, d={id,montant:m,sens:t.sens,env:"",note:t.label,date:t.booking_date,source:"banque"}, lib=norm(t.label);
     if(t.sens==="out"){
-      const ch=S.charges.find(c=>estCharge(c,m,lib));
+      const ch=trouver(S.charges,c=>estCharge(c,m,lib),t.booking_date);
       if(ch){d.ignore="fixe";d.fixeId=ch.id;d.raison="Déjà compté dans Fixe : "+ch.nom}
     }else{
-      const rv=S.revenus.find(r=>estRevenu(r,m,lib));
+      const rv=trouver(S.revenus,r=>estRevenu(r,m,lib),t.booking_date);
       if(rv){d.ignore="fixe";d.fixeId=rv.id;d.raison="Déjà compté dans les entrées : "+rv.nom}
     }
     if(!d.ignore){ // déjà saisi à la main ? même sens, même montant, à 3 jours près
@@ -385,7 +388,7 @@ function enAttente(){
   if(!banque?.connecte||!banque.attente?.length)return [];
   return banque.attente.map(t=>{
     const d={id:"p:"+t.id,montant:+t.amount,sens:t.sens,env:"",note:t.label,date:t.booking_date,source:"attente"},m=+t.amount,lib=norm(t.label);
-    const ch=t.sens==="out"?S.charges.find(c=>estCharge(c,m,lib)):null;
+    const ch=t.sens==="out"?trouver(S.charges,c=>estCharge(c,m,lib),t.booking_date):null;
     if(ch){d.ignore="fixe";d.fixeId=ch.id;d.raison="Déjà compté dans Fixe : "+ch.nom}
     else{const dt=new Date(d.date).getTime();if(S.depenses.some(x=>!x.source&&x.sens===d.sens&&proche(+x.montant,m,0.01)&&Math.abs(new Date(x.date).getTime()-dt)<=3*864e5)){d.ignore="doublon";d.raison="Déjà saisie à la main"}}
     return d;
